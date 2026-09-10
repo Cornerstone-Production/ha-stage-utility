@@ -42,6 +42,15 @@ RESULT_FAILED: Final = "failed"
 RESULT_SKIPPED: Final = "skipped"
 RESULT_SIMULATED: Final = "simulated"
 
+#: How long a switch holds the state it was just commanded into, ignoring one
+#: contradicting read. Companion polls the plug behind a cue on its own
+#: interval, so the first state read after a press still carries the value from
+#: before it; believing that read flips the switch straight back, which invites
+#: another tap, and a fast sequence of taps lands on the wrong state. Eight
+#: seconds covers a Companion poll cycle without letting a switch lie for long,
+#: and a read that agrees, or a contradiction that repeats, ends it sooner.
+SETTLE_SECONDS: Final = 8
+
 #: Cue state values as the server spells them.
 STATE_ON: Final = "on"
 STATE_OFF: Final = "off"
@@ -53,3 +62,6 @@ ATTR_STATE_SOURCE: Final = "state_source"
 ATTR_TOGGLE: Final = "toggle"
 ATTR_CUE_ON: Final = "cue_on"
 ATTR_CUE_OFF: Final = "cue_off"
+ATTR_SETTLING: Final = "settling"
+ATTR_LAST_COMMANDED: Final = "last_commanded"
+ATTR_COMMANDED_AT: Final = "commanded_at"

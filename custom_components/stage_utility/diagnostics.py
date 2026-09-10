@@ -40,6 +40,7 @@ async def async_get_config_entry_diagnostics(
         "states": (
             {row.id: {"state": row.state, "reason": row.reason} for row in data.switches.values()} if data else {}
         ),
+        "settling": coordinator.async_settle_report(),
         "stream": {
             "connected": coordinator.stream_connected,
             "last_error": coordinator.stream_error,
