@@ -15,6 +15,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import StageUtilityApi
 from .const import CONF_HOST, CONF_TOKEN
 from .coordinator import StageUtilityCoordinator
+from .homekit import async_set_up_reloader
 from .panel import async_register_panel, async_remove_panel
 
 PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SWITCH]
@@ -40,6 +41,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: StageUtilityConfigEntry)
     # The server names its own sidebar entry, so this waits for the manifest.
     async_register_panel(hass, entry, coordinator.data.server.name)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    # Before the platforms: their first entity sync is what tells a newly added
+    # entry's bridges they have accessories to publish.
+    async_set_up_reloader(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # After the platforms, so the first state event lands on entities that exist.
     coordinator.async_start_stream()

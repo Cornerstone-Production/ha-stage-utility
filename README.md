@@ -170,6 +170,39 @@ or an automation already decided — so this integration sends the confirmation
 straight back. Bear that in mind before exposing a destructive two-step cue to a
 dashboard.
 
+## Apple Home
+
+Cue switches and buttons reach HomeKit through Home Assistant's own **HomeKit
+Bridge**, and they follow Stage Utility within seconds: a cue added, deleted or
+renamed on the server changes the entity almost at once, over the event stream.
+
+**The bridge itself only works out what to publish when it reloads.** It builds
+its accessory list once, at start, by walking the entities that pass its filter —
+nothing in it watches the entity registry afterwards. So a cue deleted in Stage
+Utility left the Apple Home app showing the accessory as **No Response**, and a
+cue added did not appear there at all, until somebody reloaded the bridge by
+hand.
+
+So this integration reloads it. Fifteen seconds after the cue list stops
+changing — measured from the last change, so importing forty pairs is one reload
+and not forty — every loaded HomeKit Bridge that could be publishing these cues
+is reloaded, and one INFO line says which and why:
+
+```
+Reloading HomeKit Bridge "HASS Bridge" so Home picks up 3 added and 1 removed switches
+```
+
+A bridge is left alone when it is in **accessory mode** (one entity paired in its
+own right), or when its filter cannot be publishing a cue — lights only, say.
+Nothing but an added or deleted cue causes a reload: a rename, a state change and
+a reload of this integration's own entry all leave the accessory list as it was.
+`homekit` YAML is never touched.
+
+Turn it off per server under **Settings → Devices & services → Stage Utility →
+Configure**, with **Reload the HomeKit Bridge when cues change**. With it off,
+reload the bridge yourself after changing cues: **Settings → Devices & services →
+HomeKit Bridge →** the three-dot menu **→ Reload**.
+
 ## Sidebar
 
 Stage Utility gets its own entry in the Home Assistant sidebar, named after the
