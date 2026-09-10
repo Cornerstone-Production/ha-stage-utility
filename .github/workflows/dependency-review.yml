@@ -1,0 +1,25 @@
+# Blocks a pull request that introduces a vulnerable or badly-licensed
+# dependency change — what the PR *changes*, complementing the pinned
+# requirements_test.txt versions rather than repeating a scan of them.
+
+name: Dependency review
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          # GPL-3.0 is copyleft, so a permissively-licensed dependency is always
+          # compatible; the reverse is not. These are the licences that would
+          # create an obligation this project cannot meet.
+          deny-licenses: AGPL-1.0-or-later, AGPL-3.0-or-later, LGPL-2.0-or-later, SSPL-1.0, BUSL-1.1
+          comment-summary-in-pr: on-failure
