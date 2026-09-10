@@ -242,6 +242,38 @@ async def test_a_reconnect_brings_the_entities_back(
     assert hass.states.get(SWITCH).state == STATE_ON
 
 
+async def test_a_poll_that_fails_after_the_reconnect_leaves_the_entities_alone(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """The stream is back: a poll losing a race with it is not an outage.
+
+    The fallback poll can have a request in flight when the stream reconnects.
+    Letting that late failure mark the update failed would strand every entity
+    unavailable while the stream is sitting there delivering state.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+    # The reconnect, as `_stream_once` performs it: the socket, then the
+    # manifest refetch that proves the server is really answering.
+    coordinator._set_connected(True, None)  # noqa: SLF001
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+
 async def test_a_long_outage_warns_once_at_five_minutes(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
