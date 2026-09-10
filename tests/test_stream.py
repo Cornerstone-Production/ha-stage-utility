@@ -28,6 +28,11 @@ from .conftest import HOST, StreamMockResponse
 from .test_entities import SWITCH, init_integration
 
 
+def recovery_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Every INFO line saying the server came back."""
+    return [r.getMessage() for r in caplog.records if "is answering again" in r.getMessage()]
+
+
 def monkeypatch_manifest(coordinator: StageUtilityCoordinator, replacement: object) -> None:
     """Point the coordinator's manifest read at something the test controls."""
     coordinator.api.async_get_manifest = replacement  # type: ignore[method-assign]
@@ -206,6 +211,7 @@ async def test_the_first_successful_poll_brings_the_entities_back(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A poll that answers clears the outage without waiting for the stream.
 
@@ -229,17 +235,21 @@ async def test_the_first_successful_poll_brings_the_entities_back(
         f"{HOST}/api/cues/states",
         json={"ok": True, "states": {"projectors": {"state": "on"}}},
     )
-    assert await coordinator.async_poll_states_once() is True
+    with caplog.at_level(logging.INFO, "custom_components.stage_utility"):
+        assert await coordinator.async_poll_states_once() is True
     await hass.async_block_till_done()
 
     assert coordinator.last_update_success is True
     assert hass.states.get(SWITCH).state == STATE_ON
+    # The operator reading the log has to see the outage end, not just its start.
+    assert recovery_lines(caplog) == [f"Stage Utility at {HOST} is answering again"]
 
 
 async def test_a_reconnect_brings_the_entities_back(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A reconnect that reads the manifest is proof enough; no poll needed."""
     mock_server.get(f"{HOST}/api/cues/states", status=503)
@@ -253,12 +263,14 @@ async def test_a_reconnect_brings_the_entities_back(
 
     # The reconnect, as `_stream_once` performs it: the socket, then the
     # manifest refetch that proves the server is really answering.
-    coordinator._set_connected(True, None)  # noqa: SLF001
-    await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
+    with caplog.at_level(logging.INFO, "custom_components.stage_utility"):
+        coordinator._set_connected(True, None)  # noqa: SLF001
+        await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
     await hass.async_block_till_done()
 
     assert coordinator.last_update_success is True
     assert coordinator.unreachable_since is None
+    assert recovery_lines(caplog) == [f"Stage Utility at {HOST} is answering again"]
     assert hass.states.get(SWITCH).state == STATE_ON
 
 
