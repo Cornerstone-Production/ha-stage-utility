@@ -1,6 +1,9 @@
 [tool.ruff]
 line-length = 120
-target-version = "py314"
+# py313, not py314: the 3.14 target lets the formatter write `except A, B:` without
+# parentheses (PEP 758), which the runner's system python3 cannot parse — the
+# commit-subject check failed on its own source. Nothing here needs 3.14 syntax.
+target-version = "py313"
 
 [tool.ruff.lint]
 # F: pyflakes, E: pycodestyle errors, UP: pyupgrade, SIM: flake8-simplify.
