@@ -31,6 +31,7 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
         """Bind the entity to one manifest row by its stable id."""
         super().__init__(coordinator)
         self.cue_id = cue_id
+        assert coordinator.config_entry is not None  # always entry-scoped; see coordinator.py
         entry_id = coordinator.config_entry.entry_id
         self._attr_unique_id = f"{entry_id}_{cue_id}"
         server = coordinator.data.server
@@ -56,9 +57,7 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
         except CueUnknown as err:
             raise HomeAssistantError(str(err)) from err
         except StageUtilityError as err:
-            raise HomeAssistantError(
-                f"Stage Utility could not run {cue}: {err}"
-            ) from err
+            raise HomeAssistantError(f"Stage Utility could not run {cue}: {err}") from err
         if result.skipped:
             # Not a failure: the server refused to press a button the device did
             # not need. The entity is already in the state that was asked for.
@@ -99,9 +98,7 @@ def async_sync_entities(
 
 
 @callback
-def _async_remove(
-    hass: HomeAssistant, entry: ConfigEntry, platform: str, cue_ids: set[str]
-) -> None:
+def _async_remove(hass: HomeAssistant, entry: ConfigEntry, platform: str, cue_ids: set[str]) -> None:
     registry = er.async_get(hass)
     for cue_id in cue_ids:
         unique_id = f"{entry.entry_id}_{cue_id}"

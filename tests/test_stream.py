@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import asyncio
 
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
-
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from .conftest import HOST, StreamMockResponse
 from .test_entities import SWITCH, init_integration
@@ -28,19 +27,11 @@ async def test_subscribes_to_only_the_cues_channel(
     await init_integration(hass, config_entry)
     coordinator = config_entry.runtime_data
 
-    streams = [
-        call
-        for call in mock_server.mock_calls
-        if call[0].lower() == "get" and call[1].path == "/api/events"
-    ]
+    streams = [call for call in mock_server.mock_calls if call[0].lower() == "get" and call[1].path == "/api/events"]
     assert len(streams) == 1
     assert streams[0][1].query["cid"] == coordinator.cid
 
-    subscribes = [
-        call
-        for call in mock_server.mock_calls
-        if call[1].path == "/api/events/subscribe"
-    ]
+    subscribes = [call for call in mock_server.mock_calls if call[1].path == "/api/events/subscribe"]
     assert len(subscribes) == 1
     assert subscribes[0][2] == {"cid": coordinator.cid, "channels": ["cues"]}
     assert coordinator.stream_connected is True
@@ -60,9 +51,7 @@ async def test_no_fallback_poll_while_the_stream_is_up(
     assert coordinator.stream_connected is True
     await coordinator._fallback_loop()  # noqa: SLF001
 
-    assert not any(
-        call[1].path == "/api/cues/states" for call in mock_server.mock_calls
-    )
+    assert not any(call[1].path == "/api/cues/states" for call in mock_server.mock_calls)
 
 
 async def test_fallback_poll_starts_only_when_the_stream_drops(
@@ -121,9 +110,7 @@ async def test_reconnect_refetches_the_manifest(
     """
     await init_integration(hass, config_entry)
     coordinator = config_entry.runtime_data
-    before = sum(
-        1 for call in mock_server.mock_calls if call[1].path == "/api/cues/manifest"
-    )
+    before = sum(1 for call in mock_server.mock_calls if call[1].path == "/api/cues/manifest")
 
     event_stream.hang_up()
     # Let the read loop notice EOF and record the disconnect, without waiting
@@ -142,9 +129,7 @@ async def test_reconnect_refetches_the_manifest(
     await asyncio.sleep(1.1)
     await hass.async_block_till_done()
 
-    after = sum(
-        1 for call in mock_server.mock_calls if call[1].path == "/api/cues/manifest"
-    )
+    after = sum(1 for call in mock_server.mock_calls if call[1].path == "/api/cues/manifest")
     assert after > before
     assert coordinator.stream_connected is True
 

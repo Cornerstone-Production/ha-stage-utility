@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, beta]
+  pull_request:
+  # Lets a specific commit be verified on demand — and lets release.yml verify
+  # the version-bump commit it just pushed. A push made with GITHUB_TOKEN
+  # triggers no workflows at all, so without this the release bump would land
+  # with nothing having run against it.
+  workflow_dispatch:
+  schedule:
+    # Weekly, so a HACS or hassfest rule change is caught before a release
+    # does, rather than only when someone happens to touch this repo again.
+    - cron: "0 6 * * 1"
+
+# Least privilege, stated rather than inherited: the repository default is
+# read today, but a settings change should not silently widen every workflow.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, type-check, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pinning is only worth anything if it holds. It already slipped once in
+      # the app repo this was mirrored from: references pinned in one PR were
+      # complete, and a second PR merged afterwards carrying a new job with a
+      # fresh mutable tag. Nothing noticed.
+      - name: Every action is pinned to a commit SHA
+        run: |
+          set -euo pipefail
+          bad=$(grep -rnE "uses: [^ ]+@(v[0-9]+|main|master)([^0-9a-f]|$)" .github/workflows/ || true)
+          if [ -n "$bad" ]; then
+            echo "::error::a mutable action reference can be repointed at new code — pin it to a commit SHA"
+            echo "$bad"
+            exit 1
+          fi
+          echo "all actions pinned"
+
+      # Home Assistant core requires Python >= 3.14.2 as of the 2026.9 series
+      # this integration's test harness pins (requirements_test.txt). Python
+      # 3.13 cannot install it — check the currently-pinned homeassistant
+      # release's own requirement before changing this.
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_test.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements_test.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Type-check
+        run: mypy custom_components
+
+      - name: Test
+        run: pytest -q
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb # master 2026-08-03; the 1.0.0 tag ran python -m script.hassfest in a container without it
+
+  hacs:
+    name: HACS
+    # HACS serves public repositories only, and its validation reads repository
+    # metadata a private one does not expose (the run ended after the licence
+    # check with nothing said). Skipped while private; runs the day it is not.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
+        with:
+          category: integration

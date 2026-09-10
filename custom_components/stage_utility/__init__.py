@@ -21,9 +21,7 @@ PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SWITCH]
 type StageUtilityConfigEntry = ConfigEntry[StageUtilityCoordinator]
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: StageUtilityConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: StageUtilityConfigEntry) -> bool:
     """Set up one Stage Utility server."""
     api = StageUtilityApi(
         async_get_clientsession(hass),
@@ -44,9 +42,7 @@ async def async_setup_entry(
     return True
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: StageUtilityConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: StageUtilityConfigEntry) -> bool:
     """Close the stream and unload the platforms."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:

@@ -1,0 +1,40 @@
+[tool.ruff]
+line-length = 120
+# py313, not py314: the 3.14 target lets the formatter write `except A, B:` without
+# parentheses (PEP 758), which the runner's system python3 cannot parse — the
+# commit-subject check failed on its own source. Nothing here needs 3.14 syntax.
+target-version = "py313"
+
+[tool.ruff.lint]
+# F: pyflakes, E: pycodestyle errors, UP: pyupgrade, SIM: flake8-simplify.
+# I (import sorting) is on by default via isort integration in ruff's "E"/"F"
+# select below would not cover it, so it is named explicitly — this is the rule
+# the existing code already fails on (import-block ordering), and the fix is
+# `ruff check --fix`, not a config exemption.
+select = ["F", "E", "UP", "SIM", "I"]
+
+[tool.ruff.format]
+# Matches the codebase's existing style: double quotes, no trailing comma
+# manipulation beyond what the formatter already does.
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.14"
+# Home Assistant core ships its own types but nothing here vendors stubs for it,
+# and pytest-homeassistant-custom-component brings no stub package either.
+# Ignoring missing imports for the one third-party family this integration
+# actually depends on keeps mypy honest about *this repo's* code without
+# demanding a stub package that does not exist for a custom component to
+# install.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Tests exercise private attributes and mocks freely; the production code is
+# where the type discipline pays for itself.
+module = "tests.*"
+disallow_untyped_defs = false

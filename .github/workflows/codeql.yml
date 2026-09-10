@@ -1,0 +1,46 @@
+# Static analysis for the integration's Python and for the workflows
+# themselves — a workflow file is attacker-reachable surface too (a
+# pull_request_target that checks out untrusted code, a script injection
+# through an untrusted ${{ }} expansion).
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main, beta]
+  pull_request:
+  schedule:
+    # Weekly, off the same rotation as the other scheduled scans, so a rule
+    # added to CodeQL after a commit landed still gets applied to it.
+    - cron: "23 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    # Code scanning needs GitHub Advanced Security, which a private repository
+    # does not have. Skipped while private; runs the day the repo goes public.
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@4bd7200e1f146b1c937cae12d258b50f41a53cf8 # v4.38.0
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@4bd7200e1f146b1c937cae12d258b50f41a53cf8 # v4.38.0
+        with:
+          category: "/language:${{ matrix.language }}"

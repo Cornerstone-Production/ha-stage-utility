@@ -1,0 +1,312 @@
+# Versioning and releases, driven by Conventional Commits.
+#
+# beta  -> a prerelease  X.Y.Z-beta.N   (tag + GitHub prerelease)
+# main  -> the release   X.Y.Z          (tag + GitHub release)
+#
+# The level comes from every commit since the last STABLE release, per
+# docs/contributing.md:
+#   feat            -> minor
+#   fix | perf      -> patch
+#   `!` or BREAKING -> major
+#   everything else -> no release
+#
+# Since the last stable, not since the last tag — so the base version moves only
+# when the pending release changes class. A feature opens X.Y+1.0-beta.1, and the
+# refinements that follow it ride the same base as -beta.2, -beta.3, … until main
+# ships X.Y+1.0. Only a breaking change raises the base again mid-line.
+#
+# TAG-DRIVEN ON PURPOSE. This never rewrites branch history — it commits the
+# version bump forward and tags it. HACS reads the release tag; hassfest
+# requires a "version" key in a custom integration's manifest.json, which is
+# what gets bumped here.
+#
+# Ported from stage-utility's release.yml — same version arithmetic, adapted
+# for manifest.json instead of package.json and a HACS zip asset instead of
+# per-platform Node archives.
+
+name: Release
+
+on:
+  push:
+    branches: [beta, main]
+  # Re-run a release by hand — after fixing a credential, say, or a step that
+  # failed downstream of the tag. Safe to press: with nothing new since the last
+  # tag the run stands down rather than minting a version, and a tag that
+  # already exists is never rewritten.
+  workflow_dispatch:
+
+# Two pushes in quick succession must not both try to tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  # Only to dispatch ci.yml against the version-bump commit, which a
+  # GITHUB_TOKEN push cannot trigger on its own.
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      # Consumed by the artifact job below. `published` is only true when the
+      # tag actually reached the remote, so a run that stands down builds nothing.
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.push.outputs.pushed }}
+      last: ${{ steps.version.outputs.last }}
+      stable: ${{ steps.version.outputs.stable }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_test.txt
+
+      - name: Decide the version
+        id: version
+        run: |
+          set -euo pipefail
+          BRANCH="${GITHUB_REF_NAME}"
+          MANIFEST="custom_components/stage_utility/manifest.json"
+          CURRENT=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['version'])")
+
+          # Two anchors, because "should we release?" and "at what level?" are
+          # different questions over different ranges.
+          #
+          # LAST is the previous tag of any kind — what testers last saw. It
+          # answers whether anything new has landed, and scopes the notes.
+          #
+          # STABLE is the last non-prerelease. It answers the level, because a
+          # beta line accumulates: everything since the last stable release is
+          # still unreleased, so a fix landing after a feat must not drag the
+          # base forward a second time. Measuring the level from LAST instead is
+          # why -beta.N would never once reach 2 across twenty prereleases.
+          LAST=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || echo "")
+          STABLE=$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v -- '-' | head -1 || true)
+          echo "last tag: ${LAST:-<none>}  last stable: ${STABLE:-<none>}"
+
+          level_of() { # highest level among commits in the given range
+            local range="$1" subjects bodies
+            subjects=$(git log --no-merges --format='%s' $range)
+            bodies=$(git log --no-merges --format='%b' $range)
+            if grep -qE '^(feat|fix|perf|refactor|docs|test|build|ci|chore)(\([^)]+\))?!:' <<<"$subjects" \
+               || grep -q 'BREAKING CHANGE' <<<"$bodies"; then echo major
+            elif grep -qE '^feat(\([^)]+\))?:' <<<"$subjects"; then echo minor
+            elif grep -qE '^(fix|perf)(\([^)]+\))?:' <<<"$subjects"; then echo patch
+            else echo none
+            fi
+          }
+
+          # Has anything releasable landed that this branch has not published?
+          #
+          # The anchor differs by branch, and getting it wrong costs a release.
+          # On beta, "released" means any tag, so a push with nothing new does
+          # not mint another prerelease. On main, prerelease tags do NOT count:
+          # a beta -> main merge brings across commits that are already tagged
+          # as betas, so measuring from the last tag sees nothing new and skips
+          # the very release the merge exists to produce.
+          if [ "$BRANCH" = main ]; then
+            NEWS=$(level_of "${STABLE:+$STABLE..HEAD}")
+          else
+            NEWS=$(level_of "${LAST:+$LAST..HEAD}")
+          fi
+          TOTAL=$(git log --no-merges --oneline ${LAST:+$LAST..HEAD} | wc -l | tr -d ' ')
+
+          if [ "$NEWS" = none ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Nothing user-visible since ${LAST:-the beginning} — no release."
+            {
+              echo "## No release — nothing user-visible"
+              echo
+              echo "No version was minted and no artifact was built."
+              echo
+              echo "Only \`feat\`, \`fix\`, \`perf\` or a breaking change trigger a release."
+              echo "\`refactor\`, \`docs\`, \`test\`, \`build\`, \`ci\` and \`chore\` do not —"
+              echo "they ride along with the next one that does. See docs/contributing.md."
+              echo
+              echo "**Since \`${LAST:-the beginning of history}\`** ($TOTAL commit(s)):"
+              echo
+              echo '```'
+              # -n, not `| head`: under `pipefail` a reader that exits early
+              # SIGPIPEs git and fails the step.
+              git log --no-merges --format='%s' -n 40 ${LAST:+$LAST..HEAD}
+              if [ "$TOTAL" -gt 40 ]; then echo "… and $((TOTAL - 40)) more"; fi
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=No release::Nothing user-visible since ${LAST:-the beginning} — $TOTAL commit(s), none of them feat/fix/perf. They will ship with the next release."
+            exit 0
+          fi
+
+          LEVEL=$(level_of "${STABLE:+$STABLE..HEAD}")
+          echo "new since $LAST: $NEWS   accumulated since ${STABLE:-<none>}: $LEVEL"
+
+          # Where the accumulated work since the last stable release lands.
+          FROM=${STABLE#v}; FROM=${FROM:-0.0.0}
+          IFS=. read -r MA MI PA <<<"$FROM"
+          case "$LEVEL" in
+            major) MA=$((MA+1)); MI=0; PA=0 ;;
+            minor) MI=$((MI+1)); PA=0 ;;
+            patch) PA=$((PA+1)) ;;
+          esac
+          TARGET="$MA.$MI.$PA"
+
+          # Never go backwards. The beta line can already sit above what this
+          # level implies — a long-running beta accumulates many features but
+          # is still only one minor ahead of the last stable release. Taking
+          # the higher of the two keeps the published version monotonic, which
+          # HACS and anyone reading the tag list both depend on.
+          BASE=${CURRENT%%-*}
+          NEXT=$(printf '%s\n%s\n' "$TARGET" "$BASE" | sort -V | tail -1)
+          echo "target from ${STABLE:-<none>}: $TARGET   current base: $BASE   -> $NEXT"
+
+          if [ "$BRANCH" = beta ]; then
+            # Highest existing N for this base, not a count — a deleted tag
+            # must not hand the same number out twice.
+            N=$(git tag -l "v$NEXT-beta.*" | sed 's/.*-beta\.//' | sort -n | tail -1)
+            NEXT="$NEXT-beta.$(( ${N:-0} + 1 ))"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "next: $NEXT"
+          {
+            echo "## Releasing v$NEXT"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Level | \`$LEVEL\` (accumulated since \`${STABLE:-the beginning}\`) |"
+            echo "| New since \`${LAST:-the beginning}\` | \`$NEWS\`, $TOTAL commit(s) |"
+            echo "| Branch | \`$BRANCH\` |"
+            echo
+            echo "The artifact is built once the tag lands."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+          echo "last=$LAST" >> "$GITHUB_OUTPUT"
+          echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
+
+      - name: Verify before tagging
+        if: steps.version.outputs.skip == 'false'
+        run: |
+          pip install -r requirements_test.txt
+          ruff check .
+          ruff format --check .
+          mypy custom_components
+          pytest -q
+
+      - name: Bump, tag and push
+        id: push
+        if: steps.version.outputs.skip == 'false'
+        env:
+          V: ${{ steps.version.outputs.version }}
+          # For the `gh workflow run` dispatch below.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          MANIFEST="custom_components/stage_utility/manifest.json"
+          python3 - "$MANIFEST" "$V" <<'PY'
+          import re, sys
+          path, version = sys.argv[1], sys.argv[2]
+          text = open(path).read()
+          new_text = re.sub(r'"version":\s*"[^"]*"', f'"version": "{version}"', text, count=1)
+          open(path, "w").write(new_text)
+          PY
+          git add "$MANIFEST"
+          # `[skip ci]` is inert: a push made with GITHUB_TOKEN triggers no
+          # workflows at all, marker or not. Kept in case the token here is
+          # ever swapped for a PAT (which does trigger workflows) — such a run
+          # would stand down on its own since the bump is a `chore`, but there
+          # is no reason to run ci.yml a second time over the same tree.
+          git commit -m "chore(release): v$V [skip ci]"
+          git tag "v$V"
+
+          # Push the branch fast-forward only, then the tag. Never a force.
+          #
+          # A rejection here means the branch moved while we were verifying —
+          # someone merged another PR during the verification steps. That is
+          # not a failure: this run's version was computed against a HEAD that
+          # is now stale, and the queued run for the newer commit will release
+          # everything since the last tag, at the correct level for the
+          # combined set. So stand down rather than erroring (or force-pushing).
+          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            git push origin "v$V"
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+            # Run CI against the bump commit. A GITHUB_TOKEN push triggers no
+            # workflows, so without this the commit — the head of the open
+            # release PR — never gets the suite run against it.
+            gh workflow run ci.yml --ref "${GITHUB_REF_NAME}" \
+              || echo "::warning::could not dispatch CI for v$V; run it by hand on ${GITHUB_REF_NAME}"
+          else
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${GITHUB_REF_NAME} advanced during this run — skipping v$V. The run for the newer commit will release it."
+            {
+              echo "## No release — \`${GITHUB_REF_NAME}\` moved first"
+              echo
+              echo "v$V was computed against a HEAD that is now stale: something merged"
+              echo "during verification. Nothing was tagged and no artifact was built."
+              echo
+              echo "The run for the newer commit releases this work at the correct level"
+              echo "for the combined set. Nothing to do."
+            } > "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The release itself is created by the artifact job below, once the zip
+      # exists — a release cannot have assets added after it is published in
+      # full (only while still a draft or prerelease), so it must be created
+      # together with them.
+
+  # The HACS-installable zip, attached to the release the job above just
+  # tagged. HACS reads `zip_release`/`filename` from hacs.json and downloads
+  # this asset by name rather than the source archive GitHub generates for
+  # every tag automatically.
+  artifact:
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ needs.release.outputs.version }} # the tagged tree, not the branch
+          # The release notes are a commit range from the previous tag, so the
+          # default shallow clone would have nothing to compute them over.
+          fetch-depth: 0
+
+      - name: Assemble the HACS zip
+        # HACS's zip_release expects the archive to contain the integration's
+        # own folder (matching content_in_root: false in hacs.json), not the
+        # repo root.
+        run: (cd custom_components && zip -r "$OLDPWD/stage_utility.zip" stage_utility)
+
+      - name: Create the release with its zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.release.outputs.version }}
+          LAST: ${{ needs.release.outputs.last }}
+          STABLE: ${{ needs.release.outputs.stable }}
+          PRE: ${{ needs.release.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          # Scope the notes the way the version is scoped: a stable release
+          # spans everything since the last stable one, a prerelease only what
+          # is new since the previous tag.
+          if [ "$PRE" = true ]; then FROM="$LAST"; else FROM="$STABLE"; fi
+          python3 scripts/release_notes.py "$V" "$FROM" > /tmp/notes.md
+          gh release create "v$V" \
+            --title "v$V" \
+            --notes-file /tmp/notes.md \
+            $([ "$PRE" = true ] && echo --prerelease || echo --latest) \
+            stage_utility.zip
+          echo "published v$V with stage_utility.zip"

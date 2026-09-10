@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
     CannotConnect,
@@ -17,11 +17,8 @@ from .api import (
     normalise_host,
 )
 from .const import CONF_HOST, CONF_TOKEN, DOMAIN, LOGGER
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-STEP_USER_SCHEMA = vol.Schema(
-    {vol.Required(CONF_HOST): str, vol.Required(CONF_TOKEN): str}
-)
+STEP_USER_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str, vol.Required(CONF_TOKEN): str})
 
 
 class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -29,9 +26,7 @@ class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Collect the host and token, and check them against the server."""
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -54,9 +49,7 @@ class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
                 except InvalidAuth:
                     errors[CONF_TOKEN] = "invalid_auth"
                 except CannotConnect as err:
-                    LOGGER.debug(
-                        "Stage Utility at %s did not answer: %s", base_url, err
-                    )
+                    LOGGER.debug("Stage Utility at %s did not answer: %s", base_url, err)
                     errors["base"] = "cannot_connect"
                 else:
                     server = manifest.get("server") or {}
@@ -65,14 +58,10 @@ class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
                     # operator adding the same appliance by IP and by name must
                     # not end up with two copies of every switch.
                     await self.async_set_unique_id(host_of(lan_url))
-                    self._abort_if_unique_id_configured(
-                        updates={CONF_HOST: base_url}
-                    )
+                    self._abort_if_unique_id_configured(updates={CONF_HOST: base_url})
                     return self.async_create_entry(
                         title=str(server.get("name") or "Stage Utility"),
                         data={CONF_HOST: base_url, CONF_TOKEN: user_input[CONF_TOKEN]},
                     )
 
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
-        )
+        return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors)
