@@ -285,10 +285,15 @@ jobs:
           fetch-depth: 0
 
       - name: Assemble the HACS zip
-        # HACS's zip_release expects the archive to contain the integration's
-        # own folder (matching content_in_root: false in hacs.json), not the
-        # repo root.
-        run: (cd custom_components && zip -r "$OLDPWD/stage_utility.zip" stage_utility)
+        # HACS extracts a zip_release archive INTO custom_components/stage_utility,
+        # so the integration's files must sit at the archive's root. The first
+        # release wrapped them in a stage_utility/ folder and HACS installed them
+        # one level too deep, where Home Assistant found no manifest.json and
+        # loaded nothing. Verified below: the archive must list manifest.json at
+        # its top level.
+        run: |
+          (cd custom_components/stage_utility && zip -r "$OLDPWD/stage_utility.zip" . -x '__pycache__/*' '*/__pycache__/*')
+          unzip -l stage_utility.zip | awk 'NR>3 {print $4}' | grep -qx 'manifest.json' || { echo "::error::manifest.json is not at the root of the zip"; exit 1; }
 
       - name: Create the release with its zip
         env:
