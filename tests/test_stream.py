@@ -18,10 +18,19 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
-from custom_components.stage_utility.coordinator import MAX_FALLBACK_POLL_SECONDS
+from custom_components.stage_utility.api import CannotConnect
+from custom_components.stage_utility.coordinator import (
+    MAX_FALLBACK_POLL_SECONDS,
+    StageUtilityCoordinator,
+)
 
 from .conftest import HOST, StreamMockResponse
 from .test_entities import SWITCH, init_integration
+
+
+def monkeypatch_manifest(coordinator: StageUtilityCoordinator, replacement: object) -> None:
+    """Point the coordinator's manifest read at something the test controls."""
+    coordinator.api.async_get_manifest = replacement  # type: ignore[method-assign]
 
 
 async def test_subscribes_to_only_the_cues_channel(
@@ -232,7 +241,7 @@ async def test_a_reconnect_brings_the_entities_back(
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
 ) -> None:
-    """The stream returning is proof enough; it need not wait for a poll."""
+    """A reconnect that reads the manifest is proof enough; no poll needed."""
     mock_server.get(f"{HOST}/api/cues/states", status=503)
     await init_integration(hass, config_entry)
     coordinator = config_entry.runtime_data
@@ -242,11 +251,52 @@ async def test_a_reconnect_brings_the_entities_back(
     await hass.async_block_till_done()
     assert hass.states.get(SWITCH).state == "unavailable"
 
+    # The reconnect, as `_stream_once` performs it: the socket, then the
+    # manifest refetch that proves the server is really answering.
     coordinator._set_connected(True, None)  # noqa: SLF001
+    await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
     await hass.async_block_till_done()
 
     assert coordinator.last_update_success is True
+    assert coordinator._unreachable_since is None  # noqa: SLF001
     assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_a_socket_that_opens_but_a_manifest_that_500s_is_still_an_outage(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Accepting the socket is not answering; the outage clock must survive it.
+
+    A server that takes the connection and then 500s the manifest reconnects
+    over and over. Clearing the outage on the socket alone reset the clock on
+    every one of those, so an outage that never ended never reached five
+    minutes and the one WARNING an operator has to read never fired.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    async def _dead_manifest() -> dict[str, object]:
+        raise CannotConnect("/api/cues/manifest answered HTTP 500")
+
+    monkeypatch_manifest(coordinator, _dead_manifest)
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        for _ in range(7):
+            coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+            await coordinator.async_poll_states_once()
+            # The reconnect: the socket opens, and the manifest refetch fails.
+            coordinator._set_connected(True, None)  # noqa: SLF001
+            await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
+            freezer.tick(timedelta(minutes=1))
+
+    assert coordinator._unreachable_since is not None  # noqa: SLF001
+    warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
+    assert len(warnings) == 1
 
 
 async def test_a_poll_that_fails_after_the_reconnect_leaves_the_entities_alone(
@@ -272,7 +322,7 @@ async def test_a_poll_that_fails_after_the_reconnect_leaves_the_entities_alone(
     # The reconnect, as `_stream_once` performs it: the socket, then the
     # manifest refetch that proves the server is really answering.
     coordinator._set_connected(True, None)  # noqa: SLF001
-    await coordinator.async_refresh()
+    await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
     await hass.async_block_till_done()
     assert await coordinator.async_poll_states_once() is False
     await hass.async_block_till_done()

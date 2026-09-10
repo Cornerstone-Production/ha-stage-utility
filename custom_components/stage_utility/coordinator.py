@@ -257,12 +257,25 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             # closes, so subscribing first would set a filter for nothing.
             await self._async_subscribe()
             self._set_connected(True, None)
-            # Anything could have changed while we were away, and the server
-            # replays no history. `async_refresh`, not the debounced request:
-            # a reconnect is a fact, not a nudge, and the debouncer's cooldown
-            # would swallow the one refetch that matters.
-            await self.async_refresh()
+            await self._async_refetch_on_reconnect()
             await self._read_events(response)
+
+    async def _async_refetch_on_reconnect(self) -> None:
+        """Read the manifest again, and only then call the server reachable.
+
+        Anything could have changed while we were away, and the server replays
+        no history. `async_refresh`, not the debounced request: a reconnect is
+        a fact, not a nudge, and the debouncer's cooldown would swallow the one
+        refetch that matters.
+
+        Accepting a socket is not answering. A server that takes the connection
+        and then 500s the manifest reconnects over and over, and clearing the
+        outage on the socket alone reset the clock on every one of them — so an
+        outage that never ended never reached its five-minute WARNING.
+        """
+        await self.async_refresh()
+        if self.last_update_success:
+            self._note_reachable()
 
     async def _async_subscribe(self) -> None:
         """Tell the server this connection only wants the `cues` channel."""
@@ -374,8 +387,9 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         """The server answered again: clear the outage and republish the data.
 
         Called from both paths that prove reachability — a successful fallback
-        poll and a stream reconnect — because either one is enough to bring the
-        entities back, and an operator should not have to wait for the other.
+        poll, and a stream reconnect whose manifest refetch came back — because
+        either one is enough to bring the entities back, and an operator should
+        not have to wait for the other. The socket on its own proves nothing.
         """
         if self._unreachable_since is None:
             return
@@ -395,7 +409,6 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         self.stream_connected = connected
         if connected:
             LOGGER.info("Subscribed to the Stage Utility cue stream at %s", self.api.base_url)
-            self._note_reachable()
             self._stop_fallback()
         else:
             LOGGER.info(
