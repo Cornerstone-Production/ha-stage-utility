@@ -113,7 +113,8 @@ reconnect that answers brings them back.
 
 Connects and disconnects are logged at INFO, once per change rather than once
 per attempt. An outage that passes five minutes logs one WARNING naming the
-server, and nothing more until it recovers.
+server and how long it has actually been away, and nothing more until it
+recovers.
 
 ## When a cue is refused
 

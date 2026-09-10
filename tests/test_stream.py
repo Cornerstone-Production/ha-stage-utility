@@ -406,7 +406,37 @@ async def test_a_long_outage_warns_once_at_five_minutes(
     assert len(warnings) == 1
     assert warnings[0].levelno == logging.WARNING
     assert warnings[0].getMessage() == (
-        f"Stage Utility at {HOST} has been unreachable for 5 min; its switches are unavailable"
+        f"Stage Utility at {HOST} has been unreachable for 6 min; its switches are unavailable"
+    )
+
+
+async def test_the_outage_warning_says_how_long_it_has_actually_been(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The line reports the elapsed time, not the threshold that fired it.
+
+    The poll backs off, so the tick that crosses five minutes can be well past
+    it. An operator reading "5 min" on a server that went away seven minutes
+    ago is reading the constant, not the outage.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        await coordinator.async_poll_states_once()
+        freezer.tick(timedelta(minutes=7))
+        await coordinator.async_poll_states_once()
+
+    warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].getMessage() == (
+        f"Stage Utility at {HOST} has been unreachable for 7 min; its switches are unavailable"
     )
 
 

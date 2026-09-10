@@ -383,12 +383,15 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         now = dt_util.utcnow()
         if self._unreachable_since is None:
             self._unreachable_since = now
-        elif not self._unreachable_warned and now - self._unreachable_since >= UNREACHABLE_WARNING:
+        elif not self._unreachable_warned and (elapsed := now - self._unreachable_since) >= UNREACHABLE_WARNING:
             self._unreachable_warned = True
+            # The elapsed time, not the threshold: the poll backs off, so the
+            # tick that crosses five minutes can be well past it, and a line
+            # that always says "5 min" is reporting the constant.
             LOGGER.warning(
                 "Stage Utility at %s has been unreachable for %d min; its switches are unavailable",
                 self.api.base_url,
-                UNREACHABLE_WARNING.total_seconds() // 60,
+                elapsed.total_seconds() // 60,
             )
         self.async_set_update_error(err)
 
