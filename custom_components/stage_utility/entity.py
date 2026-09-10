@@ -33,7 +33,10 @@ if TYPE_CHECKING:
 class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
     """Anything belonging to one Stage Utility server."""
 
-    _attr_has_entity_name = True
+    # The cue's own words are the whole name. Home Assistant's convention would
+    # put the device (the server) in front — "Cornerstone Worship VCR Light" —
+    # and that is what HomeKit exposed and what Siri would have had to hear.
+    _attr_has_entity_name = False
 
     def __init__(self, coordinator: StageUtilityCoordinator, cue_id: str) -> None:
         """Bind the entity to one manifest row by its stable id."""

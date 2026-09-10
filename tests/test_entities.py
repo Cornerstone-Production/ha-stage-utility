@@ -42,7 +42,9 @@ async def test_entities_appear_with_the_server_device(
     bound = hass.states.get(SWITCH)
     assert bound is not None
     assert bound.state == STATE_ON
-    assert bound.attributes["friendly_name"] == "Stage Utility Projectors"
+    # The cue's words alone. With has_entity_name the server's name led every
+    # switch ("Stage Utility Projectors"), which is what Siri would have heard.
+    assert bound.attributes["friendly_name"] == "Projectors"
     assert bound.attributes["state_source"] == "MA_HL_Projector:powerState"
     assert bound.attributes["cue_on"] == "projectors_on"
     assert bound.attributes["cue_off"] == "projectors_off"
