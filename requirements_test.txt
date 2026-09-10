@@ -1,0 +1,4 @@
+# Pinned so CI and a developer's machine test the same Home Assistant.
+# pytest-homeassistant-custom-component pulls in homeassistant itself; the pin
+# below is the harness for Home Assistant 2026.9.1.
+pytest-homeassistant-custom-component==0.13.364

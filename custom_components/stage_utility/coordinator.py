@@ -37,6 +37,10 @@ MAX_EVENT_BYTES = 1_000_000
 #: timeout longer than the server's 20 s heartbeat catches a half-open socket.
 STREAM_TIMEOUT = ClientTimeout(total=None, sock_connect=10, sock_read=60)
 
+#: The fallback poll backs off this far, so an appliance switched off overnight
+#: is not asked for its cue states 2,880 times before morning.
+MAX_FALLBACK_POLL_SECONDS = 240
+
 
 @dataclass(frozen=True, slots=True)
 class CueSwitch:
@@ -220,8 +224,10 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             await self._async_subscribe()
             self._set_connected(True, None)
             # Anything could have changed while we were away, and the server
-            # replays no history.
-            await self.async_request_refresh()
+            # replays no history. `async_refresh`, not the debounced request:
+            # a reconnect is a fact, not a nudge, and the debouncer's cooldown
+            # would swallow the one refetch that matters.
+            await self.async_refresh()
             await self._read_events(response)
 
     async def _async_subscribe(self) -> None:
@@ -279,7 +285,7 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
                 "Stage Utility cue list changed (version %s); refetching",
                 body.get("version"),
             )
-            await self.async_request_refresh()
+            await self.async_refresh()
             return
         if kind != "state":
             return
@@ -347,21 +353,27 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         not asked for its cue states 2,880 times before morning.
         """
         delay = FALLBACK_POLL_SECONDS
-        while True:
+        # The flag is checked BEFORE the first sleep, so a drop is answered at
+        # once rather than leaving every switch stale for half a minute — and so
+        # a loop started against a healthy stream does nothing at all.
+        while not self.stream_connected:
+            if await self.async_poll_states_once():
+                delay = FALLBACK_POLL_SECONDS
+            else:
+                delay = min(delay * 2, MAX_FALLBACK_POLL_SECONDS)
+                LOGGER.debug("Fallback poll failed; next in %s s", delay)
             await asyncio.sleep(delay)
-            if self.stream_connected:
-                return
-            try:
-                body = await self.api.async_get_states()
-            except StageUtilityError as err:
-                delay = min(delay * 2, STREAM_BACKOFF_MAX_SECONDS * 4)
-                LOGGER.debug("Fallback poll failed (%s); next in %s s", err, delay)
-                continue
-            delay = FALLBACK_POLL_SECONDS
-            states = body.get("states")
-            if isinstance(states, dict):
-                for cue_id, row in states.items():
-                    if isinstance(row, dict):
-                        self.async_apply_state(
-                            cue_id, row.get("state"), row.get("reason")
-                        )
+
+    async def async_poll_states_once(self) -> bool:
+        """Read `/api/cues/states` and apply it. False when it could not be read."""
+        try:
+            body = await self.api.async_get_states()
+        except StageUtilityError as err:
+            LOGGER.debug("Fallback poll of cue states failed: %s", err)
+            return False
+        states = body.get("states")
+        if isinstance(states, dict):
+            for cue_id, row in states.items():
+                if isinstance(row, dict):
+                    self.async_apply_state(cue_id, row.get("state"), row.get("reason"))
+        return True
