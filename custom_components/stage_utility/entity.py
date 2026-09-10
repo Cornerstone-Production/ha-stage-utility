@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     LOGGER,
     RESULT_DISPATCHED,
+    RESULT_FAILED,
     RESULT_SIMULATED,
     RESULT_SKIPPED,
 )
@@ -77,11 +78,18 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
     def _async_note_result(self, cue: str, result: CueResult) -> None:
         """Record what the call did, and say so when nothing was pressed.
 
-        Simulate mode is not a failure — the server did exactly what it is
-        configured to do, and the operator asked for the cue — so it never
-        raises. But a cue that pressed nothing must not read as one that did,
-        so it is logged and published as `last_result`.
+        `ok: false` at HTTP 200 is the server saying the press itself did not
+        land — Companion did not answer, or answered a failure — so it raises
+        like any other failed cue. Simulate mode is not a failure: the server
+        did exactly what it is configured to do, and the operator asked for the
+        cue. But a cue that pressed nothing must not read as one that did, so
+        both are logged and published as `last_result`.
         """
+        if not result.ok:
+            self._warned_simulated = False
+            LOGGER.warning("Cue %s did not run: %s", cue, result.detail)
+            self._publish_result(RESULT_FAILED)
+            raise HomeAssistantError(f"Stage Utility could not run {cue}: {result.detail}")
         if result.simulated:
             outcome = RESULT_SIMULATED
             if not self._warned_simulated:
@@ -97,9 +105,14 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
                 # did not need. The entity is already in the state asked for.
                 LOGGER.debug("Cue %s was skipped: %s", cue, result.detail)
             outcome = RESULT_SKIPPED if result.skipped else RESULT_DISPATCHED
-        if outcome != self._last_result:
-            self._last_result = outcome
-            self.async_write_ha_state()
+        self._publish_result(outcome)
+
+    def _publish_result(self, outcome: str) -> None:
+        """Publish `last_result`, but only when it actually changed."""
+        if outcome == self._last_result:
+            return
+        self._last_result = outcome
+        self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

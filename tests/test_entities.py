@@ -401,3 +401,42 @@ async def test_a_button_reports_simulate_mode_too(
 
     assert hass.states.get(BUTTON).attributes["last_result"] == "simulated"
     assert any("simulate mode" in record.getMessage() for record in caplog.records)
+
+
+async def test_a_failed_call_at_http_200_raises_rather_than_reading_as_a_press(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`ok: false` at HTTP 200 is a failure, whatever the status line said.
+
+    Stage Utility answers 200 with `ok: false` when the Companion press itself
+    did not land. A cue that pressed nothing must not read as one that did: the
+    service call raises, the switch stays where the gear left it, and
+    `last_result` says `failed`.
+    """
+    mock_server.post(
+        f"{HOST}/api/cues/projectors_on",
+        json={"ok": False, "detail": "Companion did not answer"},
+    )
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator.async_apply_state("projectors", "off")
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == STATE_OFF
+
+    with (
+        caplog.at_level(logging.WARNING, "custom_components.stage_utility"),
+        pytest.raises(HomeAssistantError, match="Companion did not answer"),
+    ):
+        await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(SWITCH)
+    assert state.state == STATE_OFF
+    assert state.attributes["last_result"] == "failed"
+    assert any(
+        record.levelno == logging.WARNING and "Companion did not answer" in record.getMessage()
+        for record in caplog.records
+    )

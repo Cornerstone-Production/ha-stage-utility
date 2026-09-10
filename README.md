@@ -78,13 +78,17 @@ Each switch also carries:
 | `state_source` | The Companion variable the state is read from, or `null` |
 | `toggle` | Whether the pair is driven by a single toggling button |
 | `cue_on` / `cue_off` | The cue names this switch calls |
-| `last_result` | What the last call this entity made did: `dispatched`, `skipped` or `simulated` |
+| `last_result` | What the last call this entity made did: `dispatched`, `skipped`, `simulated` or `failed` |
 
 Buttons carry `last_result` too. **`simulated` means nothing was pressed** —
 Stage Utility's automation engine is in simulate mode, which is where a fresh
 install starts, so the server reported the button it *would* have pressed; the
 call succeeds and a warning is logged rather than raising, because the server
 did what it is configured to do.
+
+**`failed` means the press did not land.** Stage Utility answers `200` with
+`ok: false` when it reached the cue but Companion did not answer, so the call
+raises, a warning is logged, and the switch stays where the gear left it.
 
 ### How it stays current
 

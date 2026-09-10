@@ -31,9 +31,12 @@ STREAM_BACKOFF_MIN_SECONDS: Final = 1
 STREAM_BACKOFF_MAX_SECONDS: Final = 60
 
 #: What the last cue call this entity made actually did. `dispatched` pressed
-#: something, `skipped` found the gear already there, and `simulated` means the
-#: server's automation engine is in simulate mode and pressed nothing at all.
+#: something, `skipped` found the gear already there, `simulated` means the
+#: server's automation engine is in simulate mode and pressed nothing at all,
+#: and `failed` is the server answering HTTP 200 with `ok: false` — the press
+#: was attempted and did not land.
 RESULT_DISPATCHED: Final = "dispatched"
+RESULT_FAILED: Final = "failed"
 RESULT_SKIPPED: Final = "skipped"
 RESULT_SIMULATED: Final = "simulated"
 
