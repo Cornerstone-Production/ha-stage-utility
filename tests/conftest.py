@@ -17,12 +17,12 @@ from yarl import URL
 
 from custom_components.stage_utility.const import CONF_HOST, CONF_TOKEN, DOMAIN
 
-HOST = "http://192.168.16.61:8788"
+HOST = "http://192.168.1.50:8788"
 TOKEN = "su_testtoken"
 
 MANIFEST: dict[str, Any] = {
     "version": 42,
-    "server": {"name": "Stage Utility", "lanUrl": "http://192.168.16.61:8788"},
+    "server": {"name": "Stage Utility", "lanUrl": "http://192.168.1.50:8788"},
     "switches": [
         {
             "id": "projectors",
@@ -119,7 +119,7 @@ def config_entry(hass: HomeAssistant) -> MockConfigEntry:
         domain=DOMAIN,
         title="Stage Utility",
         data={CONF_HOST: HOST, CONF_TOKEN: TOKEN},
-        unique_id="192.168.16.61",
+        unique_id="192.168.1.50",
     )
     entry.add_to_hass(hass)
     return entry

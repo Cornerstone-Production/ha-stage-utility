@@ -27,14 +27,14 @@ async def test_user_flow_creates_entry(hass: HomeAssistant, aioclient_mock: Aioh
 
     # Typed as a bare IP: the flow supplies the scheme and the default port.
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_HOST: "192.168.16.61", CONF_TOKEN: TOKEN}
+        result["flow_id"], {CONF_HOST: "192.168.1.50", CONF_TOKEN: TOKEN}
     )
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Stage Utility"
     assert result["data"] == {CONF_HOST: HOST, CONF_TOKEN: TOKEN}
-    assert result["result"].unique_id == "192.168.16.61"
+    assert result["result"].unique_id == "192.168.1.50"
 
 
 async def test_user_flow_bad_token(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker) -> None:
@@ -88,7 +88,7 @@ async def test_same_server_twice_aborts(hass: HomeAssistant, aioclient_mock: Aio
 
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {CONF_HOST: "192.168.16.61:8788", CONF_TOKEN: TOKEN}
+        result["flow_id"], {CONF_HOST: "192.168.1.50:8788", CONF_TOKEN: TOKEN}
     )
 
     assert result["type"] is FlowResultType.ABORT

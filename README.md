@@ -31,7 +31,7 @@ directory and restart.
 
 | Field | What to type |
 |---|---|
-| Host | `192.168.16.61`, `192.168.16.61:8788` or `http://stage-utility:8788`. A bare address gets plain HTTP on port 8788, which is where every Stage Utility install starts. |
+| Host | `192.168.1.50`, `192.168.1.50:8788` or `http://stage-utility:8788`. A bare address gets plain HTTP on port 8788, which is where every Stage Utility install starts. |
 | Cue token | The `su_…` secret from Settings → Cues. |
 
 The flow reads the cue manifest to prove it found a Stage Utility, then posts to
