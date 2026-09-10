@@ -79,6 +79,18 @@ Without one, the switch reads **unknown** and turns on `assumed_state`, so the
 card shows separate on and off buttons rather than a toggle that would be
 guessing. The `reason` attribute says why in a sentence.
 
+**A press is given eight seconds to come true.** Companion polls the plug behind
+a cue on its own interval, so the first state read after a press still carries
+the value from before it. Flipping the switch back on that read is what left
+Apple Home and the device disagreeing after a few quick taps, so for eight
+seconds after a command the switch shows the state it was asked for, turns on
+`assumed_state`, and lets one contradicting read go by. A read that agrees ends
+the window at once; a contradiction that repeats is believed, because two reads
+saying the same thing is somebody at the wall rather than Companion lagging; and
+a window that lapses with nothing confirmed gives the state back to whatever was
+last read, `unknown` included. A command that failed opens no window and shows
+nothing. The `settling` attribute says when a switch is in one.
+
 Each switch also carries:
 
 | Attribute | What it is |
@@ -87,6 +99,9 @@ Each switch also carries:
 | `state_source` | The Companion variable the state is read from, or `null` |
 | `toggle` | Whether the pair is driven by a single toggling button |
 | `cue_on` / `cue_off` | The cue names this switch calls |
+| `settling` | Whether the state on show is the one just commanded, not one read |
+| `last_commanded` | The state this switch last asked the server for, or `null` |
+| `commanded_at` | When that command landed |
 | `last_result` | What the last call this entity made did: `dispatched`, `skipped`, `simulated` or `failed` |
 
 Buttons carry `last_result` too. **`simulated` means nothing was pressed** —

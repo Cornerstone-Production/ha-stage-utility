@@ -25,6 +25,7 @@ from .const import (
     CUE_CHANNEL,
     FALLBACK_POLL_SECONDS,
     LOGGER,
+    SETTLE_SECONDS,
     STATE_UNKNOWN,
     STREAM_BACKOFF_MAX_SECONDS,
     STREAM_BACKOFF_MIN_SECONDS,
@@ -74,6 +75,38 @@ class CueButton:
     room: str | None
     cue: str
     available: bool
+
+
+@dataclass(slots=True)
+class Settle:
+    """A commanded state being given a moment to actually come true.
+
+    Companion polls the plug behind a cue on its own interval, so the first
+    state read after a press still carries the value from before it. Believing
+    that read flips the switch straight back, which invites another tap, and a
+    fast sequence of taps lands on the wrong state. So the commanded state is
+    shown for `SETTLE_SECONDS` and one contradicting read is let go by.
+
+    One, not all of them. A contradiction that repeats is not Companion lagging,
+    it is somebody at the wall — and that has to get through, or the integration
+    would be substituting its own optimism for what the gear reports, which is
+    the thing a state source exists to replace. For the same reason the window
+    is an exception with an end: when it lapses with nothing confirmed, the last
+    thing actually read comes back, even when that is `unknown`.
+    """
+
+    #: The state that was commanded: what the switch shows while this holds.
+    state: str
+    #: When the command landed.
+    at: datetime
+    #: State and reason the switch showed before the command, restored if the
+    #: window lapses without the gear ever reporting.
+    previous: tuple[str, str | None]
+    #: How many consecutive reads have contradicted `state`.
+    contradictions: int = 0
+    #: The contradicting read this window swallowed, if any. It stands once the
+    #: window is over: it is the only thing that was actually read.
+    held: tuple[str, str | None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +200,8 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         self._unreachable_since: datetime | None = None
         #: Whether this outage has already had its one WARNING.
         self._unreachable_warned = False
+        #: Live settle windows, keyed by cue id. See `Settle`.
+        self._settling: dict[str, Settle] = {}
 
     # ── Manifest ──────────────────────────────────────────────────────────
 
@@ -321,23 +356,139 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         state: Any,
         reason: Any = None,
     ) -> None:
-        """Set one switch's state and publish it to the entities."""
+        """Set one switch's state from a read, unless a settle window holds it.
+
+        Every observed state reaches this one method — the SSE `state` event and
+        the fallback poll both — which is why the settle window is resolved here
+        rather than in the entity. A read the window swallows never reaches the
+        held data at all, so the NEXT read of the same value is still a change
+        and still arrives: counting consecutive contradictions on the entity
+        side would have missed the second one, because an update that changes
+        nothing is dropped before any listener sees it.
+        """
         data = self.data
         if data is None or not isinstance(cue_id, str):
             return
-        current = data.switches.get(cue_id)
-        if current is None:
+        if data.switches.get(cue_id) is None:
             LOGGER.debug("State event for unknown cue %s; ignoring", cue_id)
             return
-        updated = replace(
-            current,
-            state=str(state or STATE_UNKNOWN),
-            reason=reason if isinstance(reason, str) else None,
-        )
-        if updated == current:
+        observed = str(state or STATE_UNKNOWN)
+        read = (observed, reason if isinstance(reason, str) else None)
+        # Whether this read ended a settle window. `settling` is an attribute
+        # of its own, so the entities have to be told even when the read agreed
+        # with what they were already showing and the data did not move.
+        ended = False
+        if (settle := self._settling.get(cue_id)) is not None:
+            if self._settle_lapsed(settle):
+                # Lapsed but never swept: the read below is what stands, and the
+                # record must go with it or the switch's own end-of-window write
+                # would put the held state back over the top of it.
+                del self._settling[cue_id]
+                ended = True
+            elif observed == settle.state:
+                LOGGER.debug("Cue %s read %s, as commanded; settle window over", cue_id, observed)
+                del self._settling[cue_id]
+                ended = True
+            elif settle.contradictions == 0:
+                settle.contradictions = 1
+                settle.held = read
+                LOGGER.debug(
+                    "Cue %s read %s inside its settle window but %s was commanded; holding",
+                    cue_id,
+                    observed,
+                    settle.state,
+                )
+                return
+            else:
+                LOGGER.debug(
+                    "Cue %s read %s twice running; taking it over the commanded %s",
+                    cue_id,
+                    observed,
+                    settle.state,
+                )
+                del self._settling[cue_id]
+                ended = True
+        self._async_set_state(cue_id, *read, force=ended)
+
+    def _async_set_state(self, cue_id: str, state: str, reason: str | None = None, *, force: bool = False) -> None:
+        """Write one switch's state into the held data and publish it.
+
+        `force` publishes data that did not move, which is how a settle window
+        opening or closing reaches the entities: the state on show can be the
+        same either side of it and only the `settling` attribute changed.
+        """
+        data = self.data
+        if data is None or (current := data.switches.get(cue_id)) is None:
+            return
+        updated = replace(current, state=state, reason=reason)
+        if updated == current and not force:
             return
         data.switches[cue_id] = updated
         self.async_set_updated_data(data)
+
+    # ── Settle windows ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _settle_lapsed(settle: Settle) -> bool:
+        return dt_util.utcnow() - settle.at >= timedelta(seconds=SETTLE_SECONDS)
+
+    def settle_of(self, cue_id: str) -> Settle | None:
+        """The live settle window for a cue, or None once it has ended.
+
+        A lapsed record is left in place rather than swept here: this is read
+        from entity properties, which must not change anything, and the switch
+        that opened the window has a write scheduled for the moment it lapses.
+        """
+        settle = self._settling.get(cue_id)
+        if settle is None or self._settle_lapsed(settle):
+            return None
+        return settle
+
+    def async_begin_settle(self, cue_id: str, state: str) -> None:
+        """Show a commanded state and hold it for `SETTLE_SECONDS`."""
+        data = self.data
+        if data is None or (row := data.switches.get(cue_id)) is None:
+            return
+        self._settling[cue_id] = Settle(
+            state=state,
+            at=dt_util.utcnow(),
+            previous=(row.state, row.reason),
+        )
+        LOGGER.debug("Cue %s commanded %s; settling for %s s", cue_id, state, SETTLE_SECONDS)
+        self._async_set_state(cue_id, state, row.reason, force=True)
+
+    def async_end_settle(self, cue_id: str) -> None:
+        """Stop holding a commanded state; go back to what was last read.
+
+        Called when the window lapses. The swallowed contradiction stands if
+        there was one — it is the only thing the gear actually said — and
+        otherwise the state from before the command comes back, because a press
+        nobody confirmed is not evidence about the gear however recent it is.
+        """
+        settle = self._settling.pop(cue_id, None)
+        if settle is None:
+            return
+        state, reason = settle.held or settle.previous
+        LOGGER.debug("Cue %s settle window is up; back to %s", cue_id, state)
+        self._async_set_state(cue_id, state, reason, force=True)
+
+    def async_settle_report(self) -> dict[str, dict[str, Any]]:
+        """Every live settle window, for diagnostics.
+
+        A switch showing a state the gear has not confirmed is exactly what an
+        operator is looking at when they say Home and the device disagree, so
+        the dump says which switches are in that state and what they are holding.
+        """
+        return {
+            cue_id: {
+                "commanded": settle.state,
+                "at": settle.at.isoformat(),
+                "contradictions": settle.contradictions,
+                "held": None if settle.held is None else settle.held[0],
+            }
+            for cue_id in list(self._settling)
+            if (settle := self.settle_of(cue_id)) is not None
+        }
 
     # ── Reachability ──────────────────────────────────────────────────────
 
