@@ -54,7 +54,9 @@ class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
                 except InvalidAuth:
                     errors[CONF_TOKEN] = "invalid_auth"
                 except CannotConnect as err:
-                    LOGGER.debug("Stage Utility at %s did not answer: %s", base_url, err)
+                    LOGGER.debug(
+                        "Stage Utility at %s did not answer: %s", base_url, err
+                    )
                     errors["base"] = "cannot_connect"
                 else:
                     server = manifest.get("server") or {}

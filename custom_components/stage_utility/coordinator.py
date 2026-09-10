@@ -324,11 +324,14 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             return
         self.stream_connected = connected
         if connected:
-            LOGGER.info("Subscribed to the Stage Utility cue stream at %s", self.api.base_url)
+            LOGGER.info(
+                "Subscribed to the Stage Utility cue stream at %s", self.api.base_url
+            )
             self._stop_fallback()
         else:
             LOGGER.info(
-                "Stage Utility cue stream at %s is down (%s); polling every %s s until it returns",
+                "Stage Utility cue stream at %s is down (%s);"
+                " polling every %s s until it returns",
                 self.api.base_url,
                 error or "no reason given",
                 FALLBACK_POLL_SECONDS,

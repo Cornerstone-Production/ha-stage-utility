@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_TOKEN
 
+if TYPE_CHECKING:
+    from . import StageUtilityConfigEntry
+
 TO_REDACT = {CONF_TOKEN, "token", "secret"}
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: Any
+    hass: HomeAssistant,  # noqa: ARG001 — the signature Home Assistant calls
+    entry: StageUtilityConfigEntry,
 ) -> dict[str, Any]:
     """The manifest, the last states and how the event stream is doing.
 
@@ -34,7 +38,10 @@ async def async_get_config_entry_diagnostics(
         "switches": [asdict(row) for row in data.switches.values()] if data else [],
         "buttons": [asdict(row) for row in data.buttons.values()] if data else [],
         "states": (
-            {row.id: {"state": row.state, "reason": row.reason} for row in data.switches.values()}
+            {
+                row.id: {"state": row.state, "reason": row.reason}
+                for row in data.switches.values()
+            }
             if data
             else {}
         ),

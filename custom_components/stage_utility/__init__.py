@@ -10,10 +10,9 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import CannotConnect, InvalidAuth, StageUtilityApi
+from .api import StageUtilityApi
 from .const import CONF_HOST, CONF_TOKEN
 from .coordinator import StageUtilityCoordinator
 
@@ -32,14 +31,11 @@ async def async_setup_entry(
         entry.data[CONF_TOKEN],
     )
     coordinator = StageUtilityCoordinator(hass, api, entry)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady:
-        raise
-    except InvalidAuth as err:
-        raise ConfigEntryAuthFailed(str(err)) from err
-    except CannotConnect as err:
-        raise ConfigEntryNotReady(str(err)) from err
+    # The manifest is an open read, so this fails only on a server that is not
+    # there — which is ConfigEntryNotReady, raised by the coordinator itself.
+    # The token is checked in the config flow and again the first time a cue is
+    # called; there is nothing to authenticate against on a read.
+    await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

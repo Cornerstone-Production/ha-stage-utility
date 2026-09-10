@@ -56,7 +56,9 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
         except CueUnknown as err:
             raise HomeAssistantError(str(err)) from err
         except StageUtilityError as err:
-            raise HomeAssistantError(f"Stage Utility could not run {cue}: {err}") from err
+            raise HomeAssistantError(
+                f"Stage Utility could not run {cue}: {err}"
+            ) from err
         if result.skipped:
             # Not a failure: the server refused to press a button the device did
             # not need. The entity is already in the state that was asked for.

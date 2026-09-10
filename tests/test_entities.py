@@ -15,8 +15,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.stage_utility.const import DOMAIN
-
 from .conftest import HOST, MANIFEST, TOKEN, StreamMockResponse
 
 SWITCH = "switch.stage_utility_projectors"
