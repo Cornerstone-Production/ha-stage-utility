@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Stage Utility",
+        "description": "Point Home Assistant at your Stage Utility server and give it a cue token. Mint one in Stage Utility under Settings, Cues.",
+        "data": {
+          "host": "Host",
+          "token": "Cue token"
+        },
+        "data_description": {
+          "host": "An address on your network: 192.168.16.61, 192.168.16.61:8788, or http://stage-utility:8788. Plain HTTP on port 8788 is assumed when you leave those off.",
+          "token": "The secret shown once when the token was minted, starting su_."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "That address did not answer. Check the server is running and reachable on this network.",
+      "invalid_auth": "Stage Utility refused that token. Mint a new one and try again.",
+      "invalid_host": "That is not an address this integration can use."
+    },
+    "abort": {
+      "already_configured": "This Stage Utility server is already set up."
+    }
+  }
+}

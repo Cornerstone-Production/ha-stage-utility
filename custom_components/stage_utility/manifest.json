@@ -1,0 +1,12 @@
+{
+  "domain": "stage_utility",
+  "name": "Stage Utility",
+  "codeowners": ["@hstreuber"],
+  "config_flow": true,
+  "documentation": "https://github.com/Cornerstone-Production/ha-stage-utility",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/Cornerstone-Production/ha-stage-utility/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
