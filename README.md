@@ -55,6 +55,15 @@ The room named in Stage Utility is suggested as the Home Assistant area.
 **A button per single cue.** A cue with nothing to turn off — reset a router,
 fire a macro. Pressing it calls the cue.
 
+**Named by the cue alone.** A switch reads `Projectors`, not `Cornerstone
+Worship Projectors`. Home Assistant composes a device-bound entity's name as the
+device name followed by the entity name, which put the server's name in front of
+every cue and in front of every HomeKit accessory and Siri phrase. The cue's own
+words are written into the entity's **Name** instead, so a switch renamed by hand
+in Home Assistant keeps that rename, and a cue renamed in Stage Utility follows
+until somebody does. The `entity_id` still carries the server — two appliances
+stay apart as `switch.stage_utility_projectors` and `switch.other_projectors`.
+
 Both go **unavailable** when the Companion button behind the cue is missing from
 Companion's export: pressing it would do nothing at all, and being told that is
 better than a control that lies.

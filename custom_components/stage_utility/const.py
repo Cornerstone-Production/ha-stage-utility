@@ -47,6 +47,12 @@ STATE_ON: Final = "on"
 STATE_OFF: Final = "off"
 STATE_UNKNOWN: Final = "unknown"
 
+#: The entity registry option recording the name this integration wrote into
+#: the registry's `name` field. `name` is the operator's own field, and this is
+#: how a name the integration put there is told apart from one the operator
+#: typed. See `entity.py`.
+OPTION_NAMED_FROM: Final = "named_from"
+
 ATTR_REASON: Final = "reason"
 ATTR_LAST_RESULT: Final = "last_result"
 ATTR_STATE_SOURCE: Final = "state_source"

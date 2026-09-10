@@ -58,11 +58,69 @@ async def test_entities_appear_with_the_server_device(
     assert unbound.attributes["reason"] == "No state variable is bound to this pair"
 
     assert hass.states.get(BUTTON) is not None
+    assert hass.states.get(BUTTON).attributes["friendly_name"] == "Reset Ultrix"
 
     registry = er.async_get(hass)
     entry = registry.async_get(SWITCH)
     assert entry is not None
     assert entry.unique_id == f"{config_entry.entry_id}_projectors"
+
+
+async def test_an_operators_own_rename_is_never_overwritten(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    event_stream: StreamMockResponse,
+) -> None:
+    """The registry `name` is the operator's field, so a rename there stands.
+
+    The cue's words are written into it to keep the server's name out of the
+    friendly name, which means the integration is writing to a field a person
+    also edits. Their edit wins, and keeps winning across a cue rename.
+    """
+    await init_integration(hass, config_entry)
+    registry = er.async_get(hass)
+
+    registry.async_update_entity(SWITCH, name="Beamers")
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).attributes["friendly_name"] == "Beamers"
+
+    # Stage Utility renames the cue. The operator's word is still the one shown.
+    renamed = copy.deepcopy(MANIFEST)
+    renamed["version"] = 43
+    renamed["switches"][0]["name"] = "Main Projectors"
+    mock_server.clear_requests()
+    mock_server._mocks.insert(0, event_stream)  # noqa: SLF001
+    mock_server.get(f"{HOST}/api/cues/manifest", json=renamed)
+    mock_server.post(f"{HOST}/api/events/subscribe", json={"ok": True})
+    event_stream.send("cues", json.dumps({"type": "manifest", "version": 43}))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(SWITCH).attributes["friendly_name"] == "Beamers"
+    assert registry.async_get(SWITCH).name == "Beamers"
+
+
+async def test_a_cue_renamed_in_stage_utility_follows(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    event_stream: StreamMockResponse,
+) -> None:
+    """A cue renamed on the server renames the switch, still without the prefix."""
+    await init_integration(hass, config_entry)
+    assert hass.states.get(SWITCH).attributes["friendly_name"] == "Projectors"
+
+    renamed = copy.deepcopy(MANIFEST)
+    renamed["version"] = 43
+    renamed["switches"][0]["name"] = "Main Projectors"
+    mock_server.clear_requests()
+    mock_server._mocks.insert(0, event_stream)  # noqa: SLF001
+    mock_server.get(f"{HOST}/api/cues/manifest", json=renamed)
+    mock_server.post(f"{HOST}/api/events/subscribe", json={"ok": True})
+    event_stream.send("cues", json.dumps({"type": "manifest", "version": 43}))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(SWITCH).attributes["friendly_name"] == "Main Projectors"
 
 
 async def test_turn_on_posts_the_on_cue_with_the_token(

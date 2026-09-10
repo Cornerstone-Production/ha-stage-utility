@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -19,6 +19,7 @@ from .const import (
     ATTR_LAST_RESULT,
     DOMAIN,
     LOGGER,
+    OPTION_NAMED_FROM,
     RESULT_DISPATCHED,
     RESULT_FAILED,
     RESULT_SIMULATED,
@@ -33,10 +34,10 @@ if TYPE_CHECKING:
 class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
     """Anything belonging to one Stage Utility server."""
 
-    # The cue's own words are the whole name. Home Assistant's convention would
-    # put the device (the server) in front — "Cornerstone Worship VCR Light" —
-    # and that is what HomeKit exposed and what Siri would have had to hear.
-    _attr_has_entity_name = False
+    # True is the truth about these names: "Projectors" describes the entity
+    # alone, not the server it lives on. It does NOT keep the server's name out
+    # of the friendly name — see `_async_shorten_name` for that.
+    _attr_has_entity_name = True
 
     def __init__(self, coordinator: StageUtilityCoordinator, cue_id: str) -> None:
         """Bind the entity to one manifest row by its stable id."""
@@ -58,6 +59,67 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
             manufacturer="Stage Utility",
             configuration_url=server.lan_url,
         )
+
+    @property
+    def _cue_name(self) -> str | None:
+        """What the manifest calls this cue now, or None once it is gone."""
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """Join the coordinator, then take the server's name off this entity."""
+        await super().async_added_to_hass()
+        self._async_shorten_name()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Follow a cue renamed in Stage Utility, then publish the new data."""
+        self._async_shorten_name()
+        super()._handle_coordinator_update()
+
+    @callback
+    def _async_shorten_name(self) -> None:
+        """Write the cue's own words into the registry's `name`.
+
+        Home Assistant composes a device-bound entity's friendly name as the
+        device name followed by the entity name, and there is no integration-side
+        way out of it: `has_entity_name = False` only tells the registry to strip
+        a device-name prefix off `original_name` before composing, so a cue named
+        "VCR Light" on a server named "Cornerstone Worship" reads "Cornerstone
+        Worship VCR Light" either way. That is the name HomeKit publishes and the
+        name Siri has to hear.
+
+        The one name that escapes the composition is the registry's own `name` —
+        the field an operator edits in the entity's settings — so the cue's words
+        go there. `entity_id` is untouched: it was generated at registration and
+        keeps the server's slug, which is what makes `switch.stage_utility_*`
+        unambiguous across two appliances.
+
+        Written only while the registry still holds what this integration last
+        wrote, recorded in the entry's options. An operator who renames the
+        switch keeps their rename, and a cue renamed in Stage Utility follows
+        only until somebody does.
+        """
+        entry = self.registry_entry
+        wanted = self._cue_name or self.name
+        if entry is None or self.hass is None or not isinstance(wanted, str) or not wanted:
+            return
+        options: Mapping[str, Any] = entry.options.get(DOMAIN) or {}
+        ours = options.get(OPTION_NAMED_FROM)
+        # Cheapest first: this runs on every coordinator update, and settled is
+        # the case it is in almost always.
+        if entry.name == wanted and ours == wanted:
+            return
+        if entry.name is not None and entry.name != ours:
+            return  # the operator renamed it; theirs wins
+        LOGGER.debug(
+            "Naming %s %r, without the server's %r in front",
+            entry.entity_id,
+            wanted,
+            self.coordinator.data.server.name,
+        )
+        registry = er.async_get(self.hass)
+        registry.async_update_entity(entry.entity_id, name=wanted)
+        registry.async_update_entity_options(entry.entity_id, DOMAIN, {OPTION_NAMED_FROM: wanted})
 
     async def async_run_cue(self, cue: str) -> CueResult:
         """Call a cue and turn a refusal into something a person can read.
