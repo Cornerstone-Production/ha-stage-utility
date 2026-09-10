@@ -13,6 +13,7 @@ from .api import (
     InvalidAuth,
     StageUtilityApi,
     StageUtilityError,
+    TooOld,
     host_of,
     normalise_host,
 )
@@ -48,6 +49,9 @@ class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
                     await api.async_verify_token()
                 except InvalidAuth:
                     errors[CONF_TOKEN] = "invalid_auth"
+                except TooOld as err:
+                    LOGGER.debug("Stage Utility at %s is too old: %s", base_url, err)
+                    errors["base"] = "too_old"
                 except CannotConnect as err:
                     LOGGER.debug("Stage Utility at %s did not answer: %s", base_url, err)
                     errors["base"] = "cannot_connect"

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Stage Utility",
-        "description": "Point Home Assistant at your Stage Utility server and give it a cue token. Mint one in Stage Utility under Settings, Cues.",
+        "description": "Point Home Assistant at your Stage Utility server and give it a cue token. Mint one in Stage Utility under Settings, Automation, Calling cues.",
         "data": {
           "host": "Host",
           "token": "Cue token"
@@ -16,6 +16,7 @@
     },
     "error": {
       "cannot_connect": "That address did not answer. Check the server is running and reachable on this network.",
+      "too_old": "That Stage Utility is running, but it is older than 1.18.0 and has no cue manifest. Update it, or point this at a server on the beta channel.",
       "invalid_auth": "Stage Utility refused that token. Mint a new one and try again.",
       "invalid_host": "That is not an address this integration can use."
     },

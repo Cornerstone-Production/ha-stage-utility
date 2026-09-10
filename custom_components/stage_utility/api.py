@@ -27,6 +27,10 @@ class CannotConnect(StageUtilityError):
     """The server could not be reached, or answered something unusable."""
 
 
+class TooOld(StageUtilityError):
+    """The server answered but has no cue manifest: Stage Utility before 1.18.0."""
+
+
 class InvalidAuth(StageUtilityError):
     """The server refused the bearer token."""
 
@@ -130,7 +134,16 @@ class StageUtilityApi:
 
     async def async_get_manifest(self) -> dict[str, Any]:
         """The cue manifest: the switches and buttons this server offers."""
-        return await self._get_json("/api/cues/manifest")
+        # A 404 here is a Stage Utility that IS running and reachable but predates
+        # the manifest (1.18.0). Told apart from a dead address because the fix
+        # is different: update the server, not the network. A first install was
+        # pointed at a 1.17.1 production box and read "did not answer".
+        try:
+            return await self._get_json("/api/cues/manifest")
+        except CannotConnect as err:
+            if "HTTP 404" in str(err):
+                raise TooOld("this Stage Utility has no cue manifest; 1.18.0 or newer is needed") from err
+            raise
 
     async def async_get_states(self) -> dict[str, Any]:
         """A states snapshot. Only polled while the event stream is down."""

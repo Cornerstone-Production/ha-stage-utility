@@ -66,6 +66,21 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant, aioclient_mock: Aio
     assert result["errors"] == {"base": "cannot_connect"}
 
 
+async def test_user_flow_too_old_server(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker) -> None:
+    """A server that answers 404 on the manifest is running but predates it: say so.
+
+    A first install was pointed at a 1.17.1 production box and read "did not
+    answer", which sent the operator to check the network instead of the version.
+    """
+    aioclient_mock.get(f"{HOST}/api/cues/manifest", status=404, json={"error": "not found"})
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_HOST: HOST, CONF_TOKEN: TOKEN})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "too_old"}
+
+
 async def test_user_flow_rejects_unusable_host(hass: HomeAssistant) -> None:
     """Something that is not an address never reaches the network."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
