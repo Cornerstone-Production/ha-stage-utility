@@ -30,12 +30,20 @@ FALLBACK_POLL_SECONDS: Final = 30
 STREAM_BACKOFF_MIN_SECONDS: Final = 1
 STREAM_BACKOFF_MAX_SECONDS: Final = 60
 
+#: What the last cue call this entity made actually did. `dispatched` pressed
+#: something, `skipped` found the gear already there, and `simulated` means the
+#: server's automation engine is in simulate mode and pressed nothing at all.
+RESULT_DISPATCHED: Final = "dispatched"
+RESULT_SKIPPED: Final = "skipped"
+RESULT_SIMULATED: Final = "simulated"
+
 #: Cue state values as the server spells them.
 STATE_ON: Final = "on"
 STATE_OFF: Final = "off"
 STATE_UNKNOWN: Final = "unknown"
 
 ATTR_REASON: Final = "reason"
+ATTR_LAST_RESULT: Final = "last_result"
 ATTR_STATE_SOURCE: Final = "state_source"
 ATTR_TOGGLE: Final = "toggle"
 ATTR_CUE_ON: Final = "cue_on"

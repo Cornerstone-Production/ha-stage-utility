@@ -78,6 +78,13 @@ Each switch also carries:
 | `state_source` | The Companion variable the state is read from, or `null` |
 | `toggle` | Whether the pair is driven by a single toggling button |
 | `cue_on` / `cue_off` | The cue names this switch calls |
+| `last_result` | What the last call this entity made did: `dispatched`, `skipped` or `simulated` |
+
+Buttons carry `last_result` too. **`simulated` means nothing was pressed** —
+Stage Utility's automation engine is in simulate mode, which is where a fresh
+install starts, so the server reported the button it *would* have pressed; the
+call succeeds and a warning is logged rather than raising, because the server
+did what it is configured to do.
 
 ### How it stays current
 

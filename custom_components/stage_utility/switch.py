@@ -92,8 +92,9 @@ class StageUtilitySwitch(StageUtilityEntity, SwitchEntity):
         """Why the state is what it is, and which cues this switch calls."""
         row = self._row
         if row is None:
-            return {}
+            return super().extra_state_attributes
         return {
+            **super().extra_state_attributes,
             ATTR_REASON: row.reason,
             ATTR_STATE_SOURCE: row.state_source,
             ATTR_TOGGLE: row.toggle,

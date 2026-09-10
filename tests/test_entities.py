@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -281,3 +282,122 @@ async def test_diagnostics_redacts_the_token(
     assert report["stream"]["connected"] is True
     assert report["stream"]["channel"] == "cues"
     assert len(report["buttons"]) == 1
+
+
+async def test_simulate_mode_warns_and_reports_rather_than_pressing(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`simulated: true` is not a failure, but it must never read as a press.
+
+    A fresh Stage Utility defaults to simulate mode, so this is the answer a new
+    integration is most likely to meet first. It does not raise — the operator
+    asked for the cue and the server did what it is configured to do — but the
+    switch says `simulated`, and the log says it once.
+    """
+    mock_server.post(
+        f"{HOST}/api/cues/projectors_on",
+        json={
+            "ok": True,
+            "detail": "would press p3 r0 c1 (Projectors ON)",
+            "simulated": True,
+        },
+    )
+    await init_integration(hass, config_entry)
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
+
+    state = hass.states.get(SWITCH)
+    assert state.attributes["last_result"] == "simulated"
+    warnings = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING and "simulate mode" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert warnings[0].getMessage() == ("Cue projectors_on ran in Stage Utility's simulate mode; nothing was pressed")
+    # Simulate mode pressed nothing, so nothing about the gear changed.
+    assert state.state == STATE_ON
+
+
+async def test_a_stuck_simulate_mode_is_logged_once_not_once_per_press(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Consecutive simulated calls warn once; a real press re-arms the warning."""
+    answers = [
+        {"ok": True, "detail": "would press p3 r0 c1", "simulated": True},
+        {"ok": True, "detail": "would press p3 r0 c1", "simulated": True},
+        {"ok": True, "detail": "Pressed Projectors ON", "state": "on"},
+        {"ok": True, "detail": "would press p3 r0 c1", "simulated": True},
+    ]
+
+    async def _side_effect(method, url, data):  # noqa: ANN001, ARG001
+        from pytest_homeassistant_custom_component.test_util.aiohttp import (
+            AiohttpClientMockResponse,
+        )
+
+        return AiohttpClientMockResponse(method=method, url=url, status=200, json=answers.pop(0))
+
+    mock_server.post(f"{HOST}/api/cues/projectors_on", side_effect=_side_effect)
+    await init_integration(hass, config_entry)
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        for _ in range(4):
+            await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
+
+    warnings = [record for record in caplog.records if "simulate mode" in record.getMessage()]
+    # Two runs of simulated calls, broken by one real press: two warnings, not four.
+    assert len(warnings) == 2
+    assert hass.states.get(SWITCH).attributes["last_result"] == "simulated"
+
+
+async def test_last_result_separates_dispatched_from_skipped(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_server: AiohttpClientMocker
+) -> None:
+    """A press and a skip both succeed, and `last_result` tells them apart."""
+    answers = [
+        {"ok": True, "detail": "Pressed Projectors ON", "state": "on"},
+        {"ok": True, "detail": "Projectors are already on", "skipped": True, "state": "on"},
+    ]
+
+    async def _side_effect(method, url, data):  # noqa: ANN001, ARG001
+        from pytest_homeassistant_custom_component.test_util.aiohttp import (
+            AiohttpClientMockResponse,
+        )
+
+        return AiohttpClientMockResponse(method=method, url=url, status=200, json=answers.pop(0))
+
+    mock_server.post(f"{HOST}/api/cues/projectors_on", side_effect=_side_effect)
+    await init_integration(hass, config_entry)
+
+    await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
+    assert hass.states.get(SWITCH).attributes["last_result"] == "dispatched"
+
+    await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
+    assert hass.states.get(SWITCH).attributes["last_result"] == "skipped"
+
+
+async def test_a_button_reports_simulate_mode_too(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Buttons carry `last_result` as well; the whole point is the press."""
+    mock_server.post(
+        f"{HOST}/api/cues/reset_ultrix",
+        json={"ok": True, "detail": "would press p1 r0 c0", "simulated": True},
+    )
+    await init_integration(hass, config_entry)
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: BUTTON}, blocking=True)
+
+    assert hass.states.get(BUTTON).attributes["last_result"] == "simulated"
+    assert any("simulate mode" in record.getMessage() for record in caplog.records)

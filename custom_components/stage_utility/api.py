@@ -58,6 +58,11 @@ class CueResult:
     detail: str
     state: str | None = None
     skipped: bool = False
+    #: The server's automation engine is in simulate mode, so it reported what
+    #: it *would* have pressed and pressed nothing. A fresh Stage Utility
+    #: install defaults to simulate, so this is the state a new integration is
+    #: most likely to meet first.
+    simulated: bool = False
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -186,6 +191,7 @@ class StageUtilityApi:
                 detail=str(body.get("detail", "")),
                 state=body.get("state"),
                 skipped=bool(body.get("skipped", False)),
+                simulated=bool(body.get("simulated", False)),
                 raw=body,
             )
         message = str(body.get("error") or f"HTTP {status}")
