@@ -62,7 +62,7 @@ def _commit_subjects(base: str) -> list[str] | None:
             capture_output=True,
             text=True,
         ).stdout
-    except subprocess.CalledProcessError, OSError:
+    except (subprocess.CalledProcessError, OSError):
         return None
     return [line for line in out.split("\n") if line]
 
