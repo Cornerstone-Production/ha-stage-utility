@@ -108,11 +108,18 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
         self._publish_result(outcome)
 
     def _publish_result(self, outcome: str) -> None:
-        """Publish `last_result`, but only when it actually changed."""
+        """Publish `last_result`, but only when it actually changed.
+
+        A cue can be called on an entity that Home Assistant has not added yet,
+        or has already taken away; `async_write_ha_state` raises on either.
+        Recording what the call did is not worth turning a press that worked
+        into an error, so the write is skipped and the attribute still stands.
+        """
         if outcome == self._last_result:
             return
         self._last_result = outcome
-        self.async_write_ha_state()
+        if self.hass is not None and self.entity_id:
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

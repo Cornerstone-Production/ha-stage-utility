@@ -440,3 +440,28 @@ async def test_a_failed_call_at_http_200_raises_rather_than_reading_as_a_press(
         record.levelno == logging.WARNING and "Companion did not answer" in record.getMessage()
         for record in caplog.records
     )
+
+
+async def test_a_cue_run_before_the_entity_is_added_is_recorded_not_raised(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_server: AiohttpClientMocker
+) -> None:
+    """An entity with no `hass` yet still records its result instead of blowing up.
+
+    `async_write_ha_state` demands both `hass` and an `entity_id`, and raises
+    when either is missing. Nothing about recording what a cue did is worth
+    turning a successful press into an error the operator has to read.
+    """
+    from custom_components.stage_utility.switch import StageUtilitySwitch
+
+    mock_server.post(
+        f"{HOST}/api/cues/projectors_on",
+        json={"ok": True, "detail": "Pressed Projectors ON", "state": "on"},
+    )
+    await init_integration(hass, config_entry)
+
+    orphan = StageUtilitySwitch(config_entry.runtime_data, "projectors")
+    assert orphan.entity_id is None
+
+    await orphan.async_run_cue("projectors_on")
+
+    assert orphan.extra_state_attributes["last_result"] == "dispatched"
