@@ -18,6 +18,8 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
+from custom_components.stage_utility.coordinator import MAX_FALLBACK_POLL_SECONDS
+
 from .conftest import HOST, StreamMockResponse
 from .test_entities import SWITCH, init_integration
 
@@ -276,3 +278,63 @@ async def test_a_long_outage_warns_once_at_five_minutes(
     assert warnings[0].getMessage() == (
         f"Stage Utility at {HOST} has been unreachable for 5 min; its switches are unavailable"
     )
+
+
+async def test_the_fallback_tick_caps_its_backoff_and_nudges_the_stream(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The poll backs off no further than a minute, and wakes the stream each tick.
+
+    Uncapped, eight failed ticks would have the poll an hour and a half apart —
+    and since the reconnect rides this tick, that is also how long a recovered
+    server would go unnoticed.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    # Take the real stream loop out of the way, so the patched sleep below is
+    # only ever reached by the fallback loop.
+    coordinator._stream_task.cancel()  # noqa: SLF001
+    coordinator.stream_connected = False
+
+    delays: list[float] = []
+    nudged: list[bool] = []
+
+    async def fake_sleep(seconds, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        nudged.append(coordinator._retry_stream.is_set())  # noqa: SLF001
+        coordinator._retry_stream.clear()  # noqa: SLF001
+        delays.append(seconds)
+        if len(delays) >= 8:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._fallback_loop()  # noqa: SLF001
+    monkeypatch.undo()
+
+    assert MAX_FALLBACK_POLL_SECONDS == 60
+    assert max(delays) == 60
+    # Every tick, not every other one and not only the ones that answered.
+    assert nudged == [True] * 8
+
+
+async def test_the_stream_backoff_gives_way_to_a_nudge(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """A reconnect parked on its backoff wakes when the fallback poll nudges it."""
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator._retry_stream.clear()  # noqa: SLF001
+
+    waiter = asyncio.create_task(coordinator._async_wait_to_retry(3600))  # noqa: SLF001
+    await asyncio.sleep(0)
+    assert not waiter.done()
+
+    coordinator._retry_stream.set()  # noqa: SLF001
+    async with asyncio.timeout(1):
+        await waiter

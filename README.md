@@ -95,10 +95,12 @@ of the config entry and never polls a healthy server. State changes and changes
 to the cue list both arrive on that stream.
 
 When the stream drops — the appliance rebooted, the network blinked — it
-reconnects with a backoff from 1 s to 60 s, and meanwhile falls back to reading
-`/api/cues/states` every 30 seconds, backing that off too if the server stays
-away. The moment the stream is back, the polling stops and the manifest is read
-again, because nothing is replayed for the time the socket was dead.
+falls back to reading `/api/cues/states` every 30 seconds, backing that off to
+no more than a minute if the server stays away. The reconnect rides that same
+tick, so a server that came back is picked up within one poll rather than at
+whatever the stream's own backoff had grown to. The moment the stream is back,
+the polling stops and the manifest is read again, because nothing is replayed
+for the time the socket was dead.
 
 **When the server is not there at all** — stream down and the fallback poll
 failing too — nothing knows what the gear is doing, so every switch and button
