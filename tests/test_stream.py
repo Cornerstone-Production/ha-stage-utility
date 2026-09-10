@@ -258,7 +258,7 @@ async def test_a_reconnect_brings_the_entities_back(
     await hass.async_block_till_done()
 
     assert coordinator.last_update_success is True
-    assert coordinator._unreachable_since is None  # noqa: SLF001
+    assert coordinator.unreachable_since is None
     assert hass.states.get(SWITCH).state == STATE_ON
 
 
@@ -294,7 +294,7 @@ async def test_a_socket_that_opens_but_a_manifest_that_500s_is_still_an_outage(
             await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
             freezer.tick(timedelta(minutes=1))
 
-    assert coordinator._unreachable_since is not None  # noqa: SLF001
+    assert coordinator.unreachable_since is not None
     warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
     assert len(warnings) == 1
 
@@ -329,6 +329,35 @@ async def test_a_poll_that_fails_after_the_reconnect_leaves_the_entities_alone(
 
     assert coordinator.last_update_success is True
     assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_diagnostics_carry_how_long_the_server_has_been_away(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """`unreachable_since` is what dates an outage in a downloaded dump.
+
+    `last_update_success: false` says the server is not answering; it does not
+    say whether that started a minute ago or on Friday night.
+    """
+    from custom_components.stage_utility.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert report["coordinator"]["unreachable_since"] is None
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert report["coordinator"]["last_update_success"] is False
+    assert report["coordinator"]["unreachable_since"] == coordinator.unreachable_since.isoformat()
 
 
 async def test_a_long_outage_warns_once_at_five_minutes(

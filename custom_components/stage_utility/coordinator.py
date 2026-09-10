@@ -362,6 +362,15 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
 
     # ── Reachability ──────────────────────────────────────────────────────
 
+    @property
+    def unreachable_since(self) -> datetime | None:
+        """When the server first stopped answering, or None while it answers.
+
+        Read by diagnostics: `last_update_success: false` says the server is
+        not there, but not whether that started a minute ago or on Friday.
+        """
+        return self._unreachable_since
+
     def _note_unreachable(self, err: StageUtilityError) -> None:
         """The server is not answering: mark the update failed.
 

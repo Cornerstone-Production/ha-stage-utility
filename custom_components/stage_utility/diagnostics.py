@@ -48,5 +48,6 @@ async def async_get_config_entry_diagnostics(
         },
         "coordinator": {
             "last_update_success": coordinator.last_update_success,
+            "unreachable_since": (coordinator.unreachable_since.isoformat() if coordinator.unreachable_since else None),
         },
     }

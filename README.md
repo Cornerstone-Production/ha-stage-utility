@@ -150,8 +150,9 @@ dashboard.
 
 **Diagnostics** — Settings → Devices & services → Stage Utility → the three-dot
 menu → **Download diagnostics**. It carries the manifest, every cue's last known
-state, and whether the event stream is up and what killed it last. The cue token
-is redacted.
+state, whether the event stream is up and what killed it last, and
+`unreachable_since` — when the server stopped answering, so an outage can be
+dated rather than just noticed. The cue token is redacted.
 
 **Debug logging**:
 
