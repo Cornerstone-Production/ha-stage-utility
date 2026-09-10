@@ -27,8 +27,20 @@ CUE_CHANNEL: Final = "cues"
 #: Only used while the event stream is down. See coordinator.py.
 FALLBACK_POLL_SECONDS: Final = 30
 
+#: The stream reconnect doubles from a second up to half a minute, which is the
+#: longest a recovered server goes unnoticed by the stream itself.
 STREAM_BACKOFF_MIN_SECONDS: Final = 1
-STREAM_BACKOFF_MAX_SECONDS: Final = 60
+STREAM_BACKOFF_MAX_SECONDS: Final = 30
+
+#: What the last cue call this entity made actually did. `dispatched` pressed
+#: something, `skipped` found the gear already there, `simulated` means the
+#: server's automation engine is in simulate mode and pressed nothing at all,
+#: and `failed` is the server answering HTTP 200 with `ok: false` — the press
+#: was attempted and did not land.
+RESULT_DISPATCHED: Final = "dispatched"
+RESULT_FAILED: Final = "failed"
+RESULT_SKIPPED: Final = "skipped"
+RESULT_SIMULATED: Final = "simulated"
 
 #: Cue state values as the server spells them.
 STATE_ON: Final = "on"
@@ -36,6 +48,7 @@ STATE_OFF: Final = "off"
 STATE_UNKNOWN: Final = "unknown"
 
 ATTR_REASON: Final = "reason"
+ATTR_LAST_RESULT: Final = "last_result"
 ATTR_STATE_SOURCE: Final = "state_source"
 ATTR_TOGGLE: Final = "toggle"
 ATTR_CUE_ON: Final = "cue_on"

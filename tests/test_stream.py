@@ -8,14 +8,34 @@ and the poll is the apology for it being down.
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import timedelta
 
+import pytest
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
+from custom_components.stage_utility.api import CannotConnect
+from custom_components.stage_utility.coordinator import (
+    MAX_FALLBACK_POLL_SECONDS,
+    StageUtilityCoordinator,
+)
+
 from .conftest import HOST, StreamMockResponse
 from .test_entities import SWITCH, init_integration
+
+
+def recovery_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """Every INFO line saying the server came back."""
+    return [r.getMessage() for r in caplog.records if "is answering again" in r.getMessage()]
+
+
+def monkeypatch_manifest(coordinator: StageUtilityCoordinator, replacement: object) -> None:
+    """Point the coordinator's manifest read at something the test controls."""
+    coordinator.api.async_get_manifest = replacement  # type: ignore[method-assign]
 
 
 async def test_subscribes_to_only_the_cues_channel(
@@ -90,11 +110,19 @@ async def test_fallback_poll_reports_a_failure_rather_than_swallowing_it(
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
 ) -> None:
-    """A poll that could not read says so, so the loop can back off."""
+    """A poll that could not read says so, so the loop can back off.
+
+    With the stream still up it says so to the loop and to nobody else: one
+    unanswered request is not a server that is gone, and the entities stay put.
+    """
     mock_server.get(f"{HOST}/api/cues/states", status=503)
     await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
 
-    assert await config_entry.runtime_data.async_poll_states_once() is False
+    assert coordinator.stream_connected is True
+    assert await coordinator.async_poll_states_once() is False
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_ON
 
 
 async def test_reconnect_refetches_the_manifest(
@@ -154,3 +182,334 @@ async def test_oversized_frame_is_refused(
 
     assert coordinator.stream_connected is False
     assert "oversized" in (coordinator.stream_error or "")
+
+
+async def test_a_dead_server_makes_its_entities_unavailable(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """Stream down and the poll failing means nothing knows what the gear is doing.
+
+    Leaving the switches available and showing what they last heard is a control
+    that lies about a server that is not there.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    await asyncio.sleep(0)
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is False
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+
+async def test_the_first_successful_poll_brings_the_entities_back(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A poll that answers clears the outage without waiting for the stream.
+
+    The recovery payload says exactly what the switch already holds, so nothing
+    republishes the data as a side effect of the state changing. What brings the
+    entity back has to be the poll noting the server reachable again — which is
+    the whole thing under test.
+    """
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+    mock_server.clear_requests()
+    mock_server.get(
+        f"{HOST}/api/cues/states",
+        json={"ok": True, "states": {"projectors": {"state": "on"}}},
+    )
+    with caplog.at_level(logging.INFO, "custom_components.stage_utility"):
+        assert await coordinator.async_poll_states_once() is True
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_ON
+    # The operator reading the log has to see the outage end, not just its start.
+    assert recovery_lines(caplog) == [f"Stage Utility at {HOST} is answering again"]
+
+
+async def test_a_reconnect_brings_the_entities_back(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A reconnect that reads the manifest is proof enough; no poll needed."""
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+    # The reconnect, as `_stream_once` performs it: the socket, then the
+    # manifest refetch that proves the server is really answering.
+    with caplog.at_level(logging.INFO, "custom_components.stage_utility"):
+        coordinator._set_connected(True, None)  # noqa: SLF001
+        await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.unreachable_since is None
+    assert recovery_lines(caplog) == [f"Stage Utility at {HOST} is answering again"]
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_a_socket_that_opens_but_a_manifest_that_500s_is_still_an_outage(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Accepting the socket is not answering; the outage clock must survive it.
+
+    A server that takes the connection and then 500s the manifest reconnects
+    over and over. Clearing the outage on the socket alone reset the clock on
+    every one of those, so an outage that never ended never reached five
+    minutes and the one WARNING an operator has to read never fired.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    async def _dead_manifest() -> dict[str, object]:
+        raise CannotConnect("/api/cues/manifest answered HTTP 500")
+
+    monkeypatch_manifest(coordinator, _dead_manifest)
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        for _ in range(7):
+            coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+            await coordinator.async_poll_states_once()
+            # The reconnect: the socket opens, and the manifest refetch fails.
+            coordinator._set_connected(True, None)  # noqa: SLF001
+            await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
+            freezer.tick(timedelta(minutes=1))
+
+    assert coordinator.unreachable_since is not None
+    warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
+    assert len(warnings) == 1
+
+
+async def test_a_poll_that_fails_after_the_reconnect_leaves_the_entities_alone(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """The stream is back: a poll losing a race with it is not an outage.
+
+    The fallback poll can have a request in flight when the stream reconnects.
+    Letting that late failure mark the update failed would strand every entity
+    unavailable while the stream is sitting there delivering state.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+    # The reconnect, as `_stream_once` performs it: the socket, then the
+    # manifest refetch that proves the server is really answering.
+    coordinator._set_connected(True, None)  # noqa: SLF001
+    await coordinator._async_refetch_on_reconnect()  # noqa: SLF001
+    await hass.async_block_till_done()
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_diagnostics_carry_how_long_the_server_has_been_away(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """`unreachable_since` is what dates an outage in a downloaded dump.
+
+    `last_update_success: false` says the server is not answering; it does not
+    say whether that started a minute ago or on Friday night.
+    """
+    from custom_components.stage_utility.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert report["coordinator"]["unreachable_since"] is None
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+
+    report = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert report["coordinator"]["last_update_success"] is False
+    assert report["coordinator"]["unreachable_since"] == coordinator.unreachable_since.isoformat()
+
+
+async def test_a_long_outage_warns_once_at_five_minutes(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """One WARNING when an outage passes 5 min, then silence until recovery.
+
+    A server switched off overnight must not fill the log, and an operator
+    reading it at 9am on a Sunday must find one line saying why every switch is
+    grey.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        await coordinator.async_poll_states_once()
+        # Four minutes in is still just the INFO line the drop already logged.
+        freezer.tick(timedelta(minutes=4))
+        await coordinator.async_poll_states_once()
+        assert [r for r in caplog.records if "unreachable for" in r.getMessage()] == []
+
+        freezer.tick(timedelta(minutes=2))
+        for _ in range(5):
+            await coordinator.async_poll_states_once()
+            freezer.tick(timedelta(minutes=10))
+
+    warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].levelno == logging.WARNING
+    assert warnings[0].getMessage() == (
+        f"Stage Utility at {HOST} has been unreachable for 6 min; its switches are unavailable"
+    )
+
+
+async def test_the_outage_warning_says_how_long_it_has_actually_been(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The line reports the elapsed time, not the threshold that fired it.
+
+    The poll backs off, so the tick that crosses five minutes can be well past
+    it. An operator reading "5 min" on a server that went away seven minutes
+    ago is reading the constant, not the outage.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        await coordinator.async_poll_states_once()
+        freezer.tick(timedelta(minutes=7))
+        await coordinator.async_poll_states_once()
+
+    warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].getMessage() == (
+        f"Stage Utility at {HOST} has been unreachable for 7 min; its switches are unavailable"
+    )
+
+
+async def test_the_fallback_tick_caps_its_backoff(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The poll backs off no further than a minute.
+
+    Uncapped, eight failed ticks would have the poll an hour and a half apart,
+    so a server that came back at 8am would be found at half past nine.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    # Take the real stream loop out of the way, so the patched sleep below is
+    # only ever reached by the fallback loop.
+    coordinator._stream_task.cancel()  # noqa: SLF001
+    coordinator.stream_connected = False
+
+    delays: list[float] = []
+
+    async def fake_sleep(seconds, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        delays.append(seconds)
+        if len(delays) >= 8:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._fallback_loop()  # noqa: SLF001
+    monkeypatch.undo()
+
+    assert MAX_FALLBACK_POLL_SECONDS == 60
+    # Uncapped this would read 60, 120, 240, ... — an hour and a half by the
+    # eighth tick.
+    assert delays == [60] * 8
+
+
+async def test_the_stream_backoff_doubles_up_to_thirty_seconds(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stream that will not open is retried on a doubling backoff, capped at 30 s.
+
+    Half a minute is the longest a recovered server goes unnoticed by the
+    stream, and over a twelve-hour outage it costs at most 1,440 attempts.
+    """
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator._stream_task.cancel()  # noqa: SLF001
+    # Already recorded as down, so the loop's own `_set_connected(False)` is a
+    # no-op and no fallback task starts to share the patched sleep below.
+    coordinator.stream_connected = False
+
+    async def _dead_stream() -> None:
+        raise CannotConnect("connection refused")
+
+    monkeypatch.setattr(coordinator, "_stream_once", _dead_stream)
+
+    delays: list[float] = []
+
+    async def fake_sleep(seconds, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        delays.append(seconds)
+        if len(delays) >= 8:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._stream_loop()  # noqa: SLF001
+    monkeypatch.undo()
+
+    assert delays == [1, 2, 4, 8, 16, 30, 30, 30]

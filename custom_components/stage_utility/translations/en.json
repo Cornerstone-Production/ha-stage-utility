@@ -9,7 +9,7 @@
           "token": "Cue token"
         },
         "data_description": {
-          "host": "An address on your network: 192.168.16.61, 192.168.16.61:8788, or http://stage-utility:8788. Plain HTTP on port 8788 is assumed when you leave those off.",
+          "host": "An address on your network: 192.168.1.50, 192.168.1.50:8788, or http://stage-utility:8788. Plain HTTP on port 8788 is assumed when you leave those off.",
           "token": "The secret shown once when the token was minted, starting su_."
         }
       }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -15,7 +15,15 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import CueRefused, CueResult, CueUnknown, StageUtilityError
-from .const import DOMAIN, LOGGER
+from .const import (
+    ATTR_LAST_RESULT,
+    DOMAIN,
+    LOGGER,
+    RESULT_DISPATCHED,
+    RESULT_FAILED,
+    RESULT_SIMULATED,
+    RESULT_SKIPPED,
+)
 from .coordinator import StageUtilityCoordinator
 
 if TYPE_CHECKING:
@@ -31,6 +39,12 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
         """Bind the entity to one manifest row by its stable id."""
         super().__init__(coordinator)
         self.cue_id = cue_id
+        #: What this entity's last cue call landed on, or None before its first.
+        self._last_result: str | None = None
+        #: Whether the simulate-mode warning has already been said for the run
+        #: of simulated calls this entity is currently in. A server left in
+        #: simulate mode would otherwise log a line per press, forever.
+        self._warned_simulated = False
         assert coordinator.config_entry is not None  # always entry-scoped; see coordinator.py
         entry_id = coordinator.config_entry.entry_id
         self._attr_unique_id = f"{entry_id}_{cue_id}"
@@ -58,11 +72,61 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
             raise HomeAssistantError(str(err)) from err
         except StageUtilityError as err:
             raise HomeAssistantError(f"Stage Utility could not run {cue}: {err}") from err
-        if result.skipped:
-            # Not a failure: the server refused to press a button the device did
-            # not need. The entity is already in the state that was asked for.
-            LOGGER.debug("Cue %s was skipped: %s", cue, result.detail)
+        self._async_note_result(cue, result)
         return result
+
+    def _async_note_result(self, cue: str, result: CueResult) -> None:
+        """Record what the call did, and say so when nothing was pressed.
+
+        `ok: false` at HTTP 200 is the server saying the press itself did not
+        land — Companion did not answer, or answered a failure — so it raises
+        like any other failed cue. Simulate mode is not a failure: the server
+        did exactly what it is configured to do, and the operator asked for the
+        cue. But a cue that pressed nothing must not read as one that did, so
+        both are logged and published as `last_result`.
+        """
+        if not result.ok:
+            self._warned_simulated = False
+            LOGGER.warning("Cue %s did not run: %s", cue, result.detail)
+            self._publish_result(RESULT_FAILED)
+            raise HomeAssistantError(f"Stage Utility could not run {cue}: {result.detail}")
+        if result.simulated:
+            outcome = RESULT_SIMULATED
+            if not self._warned_simulated:
+                self._warned_simulated = True
+                LOGGER.warning(
+                    "Cue %s ran in Stage Utility's simulate mode; nothing was pressed",
+                    cue,
+                )
+        else:
+            self._warned_simulated = False
+            if result.skipped:
+                # Not a failure: the server refused to press a button the device
+                # did not need. The entity is already in the state asked for.
+                LOGGER.debug("Cue %s was skipped: %s", cue, result.detail)
+            outcome = RESULT_SKIPPED if result.skipped else RESULT_DISPATCHED
+        self._publish_result(outcome)
+
+    def _publish_result(self, outcome: str) -> None:
+        """Publish `last_result`, but only when it actually changed.
+
+        A cue can be called on an entity that Home Assistant has not added yet,
+        or has already taken away; `async_write_ha_state` raises on either.
+        Recording what the call did is not worth turning a press that worked
+        into an error, so the write is skipped and the attribute still stands.
+        """
+        if outcome == self._last_result:
+            return
+        self._last_result = outcome
+        if self.hass is not None and self.entity_id:
+            self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """What the last cue call this entity made actually did."""
+        if self._last_result is None:
+            return {}
+        return {ATTR_LAST_RESULT: self._last_result}
 
 
 @callback

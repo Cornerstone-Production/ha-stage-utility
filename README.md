@@ -31,7 +31,7 @@ directory and restart.
 
 | Field | What to type |
 |---|---|
-| Host | `192.168.16.61`, `192.168.16.61:8788` or `http://stage-utility:8788`. A bare address gets plain HTTP on port 8788, which is where every Stage Utility install starts. |
+| Host | `192.168.1.50`, `192.168.1.50:8788` or `http://stage-utility:8788`. A bare address gets plain HTTP on port 8788, which is where every Stage Utility install starts. |
 | Cue token | The `su_…` secret from Settings → Cues. |
 
 The flow reads the cue manifest to prove it found a Stage Utility, then posts to
@@ -78,6 +78,17 @@ Each switch also carries:
 | `state_source` | The Companion variable the state is read from, or `null` |
 | `toggle` | Whether the pair is driven by a single toggling button |
 | `cue_on` / `cue_off` | The cue names this switch calls |
+| `last_result` | What the last call this entity made did: `dispatched`, `skipped`, `simulated` or `failed` |
+
+Buttons carry `last_result` too. **`simulated` means nothing was pressed** —
+Stage Utility's automation engine is in simulate mode, which is where a fresh
+install starts, so the server reported the button it *would* have pressed; the
+call succeeds and a warning is logged rather than raising, because the server
+did what it is configured to do.
+
+**`failed` means the press did not land.** Stage Utility answers `200` with
+`ok: false` when it reached the cue but Companion did not answer, so the call
+raises, a warning is logged, and the switch stays where the gear left it.
 
 ### How it stays current
 
@@ -88,13 +99,21 @@ of the config entry and never polls a healthy server. State changes and changes
 to the cue list both arrive on that stream.
 
 When the stream drops — the appliance rebooted, the network blinked — it
-reconnects with a backoff from 1 s to 60 s, and meanwhile falls back to reading
-`/api/cues/states` every 30 seconds, backing that off too if the server stays
-away. The moment the stream is back, the polling stops and the manifest is read
-again, because nothing is replayed for the time the socket was dead.
+falls back to reading `/api/cues/states` every 30 seconds, backing that off to
+no more than a minute if the server stays away, and reconnects with a backoff
+from 1 s to 30 s. The moment the stream is back,
+the polling stops and the manifest is read again, because nothing is replayed
+for the time the socket was dead.
+
+**When the server is not there at all** — stream down and the fallback poll
+failing too — nothing knows what the gear is doing, so every switch and button
+goes **unavailable** rather than showing what it last heard. The first poll or
+reconnect that answers brings them back.
 
 Connects and disconnects are logged at INFO, once per change rather than once
-per attempt.
+per attempt. An outage that passes five minutes logs one WARNING naming the
+server and how long it has actually been away, and nothing more until it
+recovers.
 
 ## When a cue is refused
 
@@ -131,8 +150,9 @@ dashboard.
 
 **Diagnostics** — Settings → Devices & services → Stage Utility → the three-dot
 menu → **Download diagnostics**. It carries the manifest, every cue's last known
-state, and whether the event stream is up and what killed it last. The cue token
-is redacted.
+state, whether the event stream is up and what killed it last, and
+`unreachable_since` — when the server stopped answering, so an outage can be
+dated rather than just noticed. The cue token is redacted.
 
 **Debug logging**:
 
