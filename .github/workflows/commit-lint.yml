@@ -1,0 +1,36 @@
+# Checks that every non-merge commit in a PR follows Conventional Commits.
+#
+# This repo MERGES rather than squashes, so the commits you write are the ones
+# that land — and the ones the release flow will read to pick a version.
+# Validating the PR title instead would check a string that never becomes a
+# commit.
+#
+# See docs/contributing.md.
+
+name: Commit convention
+
+on:
+  pull_request:
+
+# Least privilege, stated rather than inherited: the repository default is
+# read today, but a settings change should not silently widen every workflow.
+permissions:
+  contents: read
+
+jobs:
+  conventional-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Need the full range between base and head to inspect every commit.
+          fetch-depth: 0
+
+      - name: Check commit subjects
+        run: |
+          set -uo pipefail
+          # The pattern lives in the script, not here. It was in both, and the
+          # only thing worse than a rule in two places is a local check that
+          # disagrees with the CI enforcing it.
+          git fetch -q origin "${{ github.base_ref }}"
+          python3 scripts/check_commit_subjects.py "origin/${{ github.base_ref }}"
