@@ -76,6 +76,10 @@ jobs:
 
   hacs:
     name: HACS
+    # HACS serves public repositories only, and its validation reads repository
+    # metadata a private one does not expose (the run ended after the licence
+    # check with nothing said). Skipped while private; runs the day it is not.
+    if: github.event.repository.private == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
