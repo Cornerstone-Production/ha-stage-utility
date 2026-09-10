@@ -54,6 +54,12 @@ class StageUtilitySwitch(StageUtilityEntity, SwitchEntity):
             self._attr_suggested_area = row.room
 
     @property
+    def _cue_name(self) -> str | None:
+        """The manifest's current words for this cue, however late they change."""
+        row = self._row
+        return None if row is None else row.name
+
+    @property
     def _row(self) -> CueSwitch | None:
         return self.coordinator.data.switches.get(self.cue_id)
 
