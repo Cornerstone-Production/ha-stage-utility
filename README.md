@@ -147,8 +147,11 @@ logger:
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements_test.txt
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest -q
 ```
+
+Branching, the commit convention, and how a push to `beta` or `main` becomes a
+release are in [docs/contributing.md](docs/contributing.md).
 
 ## Licence
 
