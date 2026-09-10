@@ -100,8 +100,14 @@ reconnects with a backoff from 1 s to 60 s, and meanwhile falls back to reading
 away. The moment the stream is back, the polling stops and the manifest is read
 again, because nothing is replayed for the time the socket was dead.
 
+**When the server is not there at all** — stream down and the fallback poll
+failing too — nothing knows what the gear is doing, so every switch and button
+goes **unavailable** rather than showing what it last heard. The first poll or
+reconnect that answers brings them back.
+
 Connects and disconnects are logged at INFO, once per change rather than once
-per attempt.
+per attempt. An outage that passes five minutes logs one WARNING naming the
+server, and nothing more until it recovers.
 
 ## When a cue is refused
 

@@ -8,7 +8,11 @@ and the poll is the apology for it being down.
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import timedelta
 
+import pytest
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -90,11 +94,19 @@ async def test_fallback_poll_reports_a_failure_rather_than_swallowing_it(
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
 ) -> None:
-    """A poll that could not read says so, so the loop can back off."""
+    """A poll that could not read says so, so the loop can back off.
+
+    With the stream still up it says so to the loop and to nobody else: one
+    unanswered request is not a server that is gone, and the entities stay put.
+    """
     mock_server.get(f"{HOST}/api/cues/states", status=503)
     await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
 
-    assert await config_entry.runtime_data.async_poll_states_once() is False
+    assert coordinator.stream_connected is True
+    assert await coordinator.async_poll_states_once() is False
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_ON
 
 
 async def test_reconnect_refetches_the_manifest(
@@ -154,3 +166,113 @@ async def test_oversized_frame_is_refused(
 
     assert coordinator.stream_connected is False
     assert "oversized" in (coordinator.stream_error or "")
+
+
+async def test_a_dead_server_makes_its_entities_unavailable(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """Stream down and the poll failing means nothing knows what the gear is doing.
+
+    Leaving the switches available and showing what they last heard is a control
+    that lies about a server that is not there.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    await asyncio.sleep(0)
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is False
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+
+async def test_the_first_successful_poll_brings_the_entities_back(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """A poll that answers clears the outage without waiting for the stream."""
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+    mock_server.clear_requests()
+    mock_server.get(
+        f"{HOST}/api/cues/states",
+        json={"ok": True, "states": {"projectors": {"state": "off"}}},
+    )
+    assert await coordinator.async_poll_states_once() is True
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_OFF
+
+
+async def test_a_reconnect_brings_the_entities_back(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+) -> None:
+    """The stream returning is proof enough; it need not wait for a poll."""
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+    assert await coordinator.async_poll_states_once() is False
+    await hass.async_block_till_done()
+    assert hass.states.get(SWITCH).state == "unavailable"
+
+    coordinator._set_connected(True, None)  # noqa: SLF001
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is True
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+
+async def test_a_long_outage_warns_once_at_five_minutes(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_server: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """One WARNING when an outage passes 5 min, then silence until recovery.
+
+    A server switched off overnight must not fill the log, and an operator
+    reading it at 9am on a Sunday must find one line saying why every switch is
+    grey.
+    """
+    mock_server.get(f"{HOST}/api/cues/states", status=503)
+    await init_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data
+    coordinator._set_connected(False, "socket closed")  # noqa: SLF001
+
+    with caplog.at_level(logging.WARNING, "custom_components.stage_utility"):
+        await coordinator.async_poll_states_once()
+        # Four minutes in is still just the INFO line the drop already logged.
+        freezer.tick(timedelta(minutes=4))
+        await coordinator.async_poll_states_once()
+        assert [r for r in caplog.records if "unreachable for" in r.getMessage()] == []
+
+        freezer.tick(timedelta(minutes=2))
+        for _ in range(5):
+            await coordinator.async_poll_states_once()
+            freezer.tick(timedelta(minutes=10))
+
+    warnings = [r for r in caplog.records if "unreachable for" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].levelno == logging.WARNING
+    assert warnings[0].getMessage() == (
+        f"Stage Utility at {HOST} has been unreachable for 5 min; its switches are unavailable"
+    )

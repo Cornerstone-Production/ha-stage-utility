@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from aiohttp import ClientError, ClientTimeout
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import CannotConnect, StageUtilityApi, StageUtilityError
 from .const import (
@@ -39,6 +41,10 @@ STREAM_TIMEOUT = ClientTimeout(total=None, sock_connect=10, sock_read=60)
 #: The fallback poll backs off this far, so an appliance switched off overnight
 #: is not asked for its cue states 2,880 times before morning.
 MAX_FALLBACK_POLL_SECONDS = 240
+
+#: How long the server may be unreachable before it is worth more than the one
+#: INFO line the drop already logged. One WARNING, then silence until recovery.
+UNREACHABLE_WARNING = timedelta(minutes=5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +161,10 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         self.stream_error: str | None = None
         self._stream_task: asyncio.Task[None] | None = None
         self._fallback_task: asyncio.Task[None] | None = None
+        #: When the server first stopped answering, or None while it answers.
+        self._unreachable_since: datetime | None = None
+        #: Whether this outage has already had its one WARNING.
+        self._unreachable_warned = False
 
     # ── Manifest ──────────────────────────────────────────────────────────
 
@@ -314,6 +324,44 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         data.switches[cue_id] = updated
         self.async_set_updated_data(data)
 
+    # ── Reachability ──────────────────────────────────────────────────────
+
+    def _note_unreachable(self, err: StageUtilityError) -> None:
+        """The server is not answering: mark the update failed.
+
+        With the stream down AND the fallback poll failing, nothing knows what
+        the gear is doing. Leaving `last_update_success` True would keep every
+        switch available and showing whatever it last heard — a control that
+        lies about a server that is not there. `async_set_update_error` makes
+        them `unavailable`, and logs its own line once per outage.
+        """
+        now = dt_util.utcnow()
+        if self._unreachable_since is None:
+            self._unreachable_since = now
+        elif not self._unreachable_warned and now - self._unreachable_since >= UNREACHABLE_WARNING:
+            self._unreachable_warned = True
+            LOGGER.warning(
+                "Stage Utility at %s has been unreachable for %d min; its switches are unavailable",
+                self.api.base_url,
+                UNREACHABLE_WARNING.total_seconds() // 60,
+            )
+        self.async_set_update_error(err)
+
+    def _note_reachable(self) -> None:
+        """The server answered again: clear the outage and republish the data.
+
+        Called from both paths that prove reachability — a successful fallback
+        poll and a stream reconnect — because either one is enough to bring the
+        entities back, and an operator should not have to wait for the other.
+        """
+        if self._unreachable_since is None:
+            return
+        self._unreachable_since = None
+        self._unreachable_warned = False
+        LOGGER.info("Stage Utility at %s is answering again", self.api.base_url)
+        if self.data is not None:
+            self.async_set_updated_data(self.data)
+
     # ── Fallback poll ─────────────────────────────────────────────────────
 
     def _set_connected(self, connected: bool, error: str | None) -> None:
@@ -324,6 +372,7 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         self.stream_connected = connected
         if connected:
             LOGGER.info("Subscribed to the Stage Utility cue stream at %s", self.api.base_url)
+            self._note_reachable()
             self._stop_fallback()
         else:
             LOGGER.info(
@@ -370,7 +419,13 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             body = await self.api.async_get_states()
         except StageUtilityError as err:
             LOGGER.debug("Fallback poll of cue states failed: %s", err)
+            # Both halves of the condition, checked here rather than trusted to
+            # the caller: a poll failing while the stream is still delivering
+            # state is one unanswered request, not a server that is gone.
+            if not self.stream_connected:
+                self._note_unreachable(err)
             return False
+        self._note_reachable()
         states = body.get("states")
         if isinstance(states, dict):
             for cue_id, row in states.items():
