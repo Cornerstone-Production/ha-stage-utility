@@ -1,0 +1,35 @@
+# Dependency updates target `beta`, not the default branch.
+#
+# The branching model is main <- beta <- feature branches, and `main` only ever
+# receives `beta`. Letting dependabot open PRs against `main` puts dependency
+# bumps ahead of beta, so every beta -> main release has to reconcile changes
+# that never went through beta. Targeting beta keeps everything flowing one way.
+version: 2
+updates:
+  # 1. Python dependencies (requirements_test.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    target-branch: "beta"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      # One PR for the routine churn instead of several.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # 2. GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "beta"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
