@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from homeassistant import config_entries
+from homeassistant.components.frontend import DATA_PANELS
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
-from custom_components.stage_utility.const import CONF_HOST, CONF_TOKEN, DOMAIN
+from custom_components.stage_utility.const import (
+    CONF_HOST,
+    CONF_TOKEN,
+    DOMAIN,
+    OPT_SHOW_IN_SIDEBAR,
+    PANEL_URL_PATH,
+)
 
 from .conftest import HOST, MANIFEST, TOKEN
 
@@ -108,3 +116,24 @@ async def test_same_server_twice_aborts(hass: HomeAssistant, aioclient_mock: Aio
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_options_flow_turns_the_sidebar_entry_off(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_server: AiohttpClientMocker
+) -> None:
+    """The one option an operator has, and the reload it causes."""
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert PANEL_URL_PATH in hass.data[DATA_PANELS]
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {OPT_SHOW_IN_SIDEBAR: False})
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options == {OPT_SHOW_IN_SIDEBAR: False}
+    # Saving the option is only half of it; the entry has to act on it.
+    assert PANEL_URL_PATH not in hass.data[DATA_PANELS]

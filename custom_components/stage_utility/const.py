@@ -11,6 +11,20 @@ LOGGER: Final = logging.getLogger(__package__)
 CONF_HOST: Final = "host"
 CONF_TOKEN: Final = "token"
 
+#: Options, not config: a sidebar entry can be turned off without touching
+#: the server or the token.
+OPT_SHOW_IN_SIDEBAR: Final = "show_in_sidebar"
+
+#: The name to fall back to when the server does not give one.
+DEFAULT_NAME: Final = "Stage Utility"
+
+#: The sidebar panel: the frontend's own iframe panel, at this path, taking
+#: the framed address as `config={"url": ...}`. A second server added later
+#: is suffixed with its entry id — see panel.py.
+PANEL_COMPONENT: Final = "iframe"
+PANEL_URL_PATH: Final = "stage-utility"
+PANEL_ICON: Final = "mdi:microphone-variant"
+
 DEFAULT_PORT: Final = 8788
 DEFAULT_SCHEME: Final = "http"
 

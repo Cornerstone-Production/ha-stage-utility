@@ -15,6 +15,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import StageUtilityApi
 from .const import CONF_HOST, CONF_TOKEN
 from .coordinator import StageUtilityCoordinator
+from .panel import async_register_panel, async_remove_panel
 
 PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SWITCH]
 
@@ -36,15 +37,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: StageUtilityConfigEntry)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
+    # The server names its own sidebar entry, so this waits for the manifest.
+    async_register_panel(hass, entry, coordinator.data.server.name)
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # After the platforms, so the first state event lands on entities that exist.
     coordinator.async_start_stream()
     return True
 
 
+async def _async_options_updated(hass: HomeAssistant, entry: StageUtilityConfigEntry) -> None:
+    """Reload the entry so the options take effect.
+
+    A reload rather than reaching into the running entry: the sidebar option is
+    read once, at setup, and a reload is the one path that both removes a panel
+    that should go and registers one that should appear.
+    """
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: StageUtilityConfigEntry) -> bool:
-    """Close the stream and unload the platforms."""
+    """Close the stream, drop the sidebar entry, and unload the platforms."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        async_remove_panel(hass, entry)
         await entry.runtime_data.async_shutdown()
     return unloaded

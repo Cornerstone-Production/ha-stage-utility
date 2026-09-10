@@ -1,6 +1,7 @@
 {
   "domain": "stage_utility",
   "name": "Stage Utility",
+  "after_dependencies": ["frontend"],
   "codeowners": ["@hstreuber"],
   "config_flow": true,
   "documentation": "https://github.com/Cornerstone-Production/ha-stage-utility",
