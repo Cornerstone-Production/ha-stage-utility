@@ -13,6 +13,7 @@ from custom_components.stage_utility.const import (
     CONF_HOST,
     CONF_TOKEN,
     DOMAIN,
+    OPT_RELOAD_HOMEKIT,
     OPT_SHOW_IN_SIDEBAR,
     PANEL_URL_PATH,
 )
@@ -121,7 +122,11 @@ async def test_same_server_twice_aborts(hass: HomeAssistant, aioclient_mock: Aio
 async def test_options_flow_turns_the_sidebar_entry_off(
     hass: HomeAssistant, config_entry: MockConfigEntry, mock_server: AiohttpClientMocker
 ) -> None:
-    """The one option an operator has, and the reload it causes."""
+    """Turning the sidebar entry off, and the reload it causes.
+
+    The HomeKit option is left at its default, which is what an operator who
+    only touched the sidebar switch would save.
+    """
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     assert PANEL_URL_PATH in hass.data[DATA_PANELS]
@@ -134,6 +139,6 @@ async def test_options_flow_turns_the_sidebar_entry_off(
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert config_entry.options == {OPT_SHOW_IN_SIDEBAR: False}
+    assert config_entry.options == {OPT_SHOW_IN_SIDEBAR: False, OPT_RELOAD_HOMEKIT: True}
     # Saving the option is only half of it; the entry has to act on it.
     assert PANEL_URL_PATH not in hass.data[DATA_PANELS]

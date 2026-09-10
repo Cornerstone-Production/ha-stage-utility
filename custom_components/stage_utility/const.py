@@ -18,6 +18,25 @@ OPT_SHOW_IN_SIDEBAR: Final = "show_in_sidebar"
 #: The name to fall back to when the server does not give one.
 DEFAULT_NAME: Final = "Stage Utility"
 
+#: Options, not config: whether a HomeKit Bridge is reloaded when the cue set
+#: changes. See homekit.py for why a reload is what it takes.
+OPT_RELOAD_HOMEKIT: Final = "reload_homekit_bridge"
+
+#: The `homekit` integration's domain, and the keys this integration reads out
+#: of a bridge's config entry. Plain strings rather than imports: the `homekit`
+#: component does not have to be loaded for its entries to be looked at, and
+#: another integration's `const` module is not a contract.
+HOMEKIT_DOMAIN: Final = "homekit"
+HOMEKIT_CONF_FILTER: Final = "filter"
+HOMEKIT_CONF_MODE: Final = "mode"
+HOMEKIT_MODE_BRIDGE: Final = "bridge"
+
+#: How long the cue set has to hold still before the bridge is reloaded. An
+#: import of many cue pairs arrives as a run of manifest events, and every
+#: reload drops and rebuilds every accessory on the bridge, so the delay runs
+#: from the last change rather than the first.
+HOMEKIT_RELOAD_DELAY_SECONDS: Final = 15
+
 #: The sidebar panel: the frontend's own iframe panel, at this path, taking
 #: the framed address as `config={"url": ...}`. A second server added later
 #: is suffixed with its entry id — see panel.py.

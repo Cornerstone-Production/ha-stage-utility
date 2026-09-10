@@ -26,6 +26,7 @@ from .const import (
     RESULT_SKIPPED,
 )
 from .coordinator import StageUtilityCoordinator
+from .homekit import async_note_entity_changes
 
 if TYPE_CHECKING:
     from . import StageUtilityConfigEntry
@@ -215,20 +216,42 @@ def async_sync_entities(
     @callback
     def _sync() -> None:
         current = set(rows())
+        added = 0
+        removed: list[str] = []
         if new := current - known:
             known.update(new)
+            # Only cues Home Assistant has never had count as added. Reloading
+            # this entry re-adds every entity it already has, and a bridge
+            # already publishing them needs nothing for that.
+            added = len(_async_unregistered(hass, entry, platform, new))
             async_add_entities(build(cue_id) for cue_id in sorted(new))
         if gone := known - current:
             known.difference_update(gone)
-            _async_remove(hass, entry, platform, gone)
+            removed = _async_remove(hass, entry, platform, gone)
+        # A HomeKit Bridge rebuilds its accessory list only when it reloads, so
+        # a cue added or deleted here needs one. See homekit.py.
+        async_note_entity_changes(hass, entry, added, removed)
 
     _sync()
     entry.async_on_unload(coordinator.async_add_listener(_sync))
 
 
 @callback
-def _async_remove(hass: HomeAssistant, entry: ConfigEntry, platform: str, cue_ids: set[str]) -> None:
+def _async_unregistered(hass: HomeAssistant, entry: ConfigEntry, platform: str, cue_ids: set[str]) -> set[str]:
+    """Which of these cues have no entity in the registry yet."""
     registry = er.async_get(hass)
+    return {
+        cue_id
+        for cue_id in cue_ids
+        if registry.async_get_entity_id(platform, DOMAIN, f"{entry.entry_id}_{cue_id}") is None
+    }
+
+
+@callback
+def _async_remove(hass: HomeAssistant, entry: ConfigEntry, platform: str, cue_ids: set[str]) -> list[str]:
+    """Take departed cues out of the registry, and say which ids went."""
+    registry = er.async_get(hass)
+    removed: list[str] = []
     for cue_id in cue_ids:
         unique_id = f"{entry.entry_id}_{cue_id}"
         entity_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
@@ -236,3 +259,5 @@ def _async_remove(hass: HomeAssistant, entry: ConfigEntry, platform: str, cue_id
             continue
         LOGGER.info("Cue %s is gone from the manifest; removing %s", cue_id, entity_id)
         registry.async_remove(entity_id)
+        removed.append(entity_id)
+    return removed

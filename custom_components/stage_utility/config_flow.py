@@ -18,10 +18,23 @@ from .api import (
     host_of,
     normalise_host,
 )
-from .const import CONF_HOST, CONF_TOKEN, DEFAULT_NAME, DOMAIN, LOGGER, OPT_SHOW_IN_SIDEBAR
+from .const import (
+    CONF_HOST,
+    CONF_TOKEN,
+    DEFAULT_NAME,
+    DOMAIN,
+    LOGGER,
+    OPT_RELOAD_HOMEKIT,
+    OPT_SHOW_IN_SIDEBAR,
+)
 
 STEP_USER_SCHEMA = vol.Schema({vol.Required(CONF_HOST): str, vol.Required(CONF_TOKEN): str})
-OPTIONS_SCHEMA = vol.Schema({vol.Required(OPT_SHOW_IN_SIDEBAR, default=True): bool})
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(OPT_SHOW_IN_SIDEBAR, default=True): bool,
+        vol.Required(OPT_RELOAD_HOMEKIT, default=True): bool,
+    }
+)
 
 
 class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -80,10 +93,10 @@ class StageUtilityConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class StageUtilityOptionsFlow(OptionsFlow):
-    """One question: should this server be in the sidebar?"""
+    """How this server shows up: in the sidebar, and in Apple Home."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Show the sidebar option, and save it.
+        """Show the options, and save them.
 
         Saving fires the entry's update listener, which reloads the entry — that
         reload is what actually adds or removes the panel.

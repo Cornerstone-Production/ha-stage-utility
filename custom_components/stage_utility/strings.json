@@ -30,10 +30,12 @@
         "title": "Stage Utility",
         "description": "How this server appears in Home Assistant.",
         "data": {
-          "show_in_sidebar": "Show in the sidebar"
+          "show_in_sidebar": "Show in the sidebar",
+          "reload_homekit_bridge": "Reload the HomeKit Bridge when cues change"
         },
         "data_description": {
-          "show_in_sidebar": "Adds an entry that opens the server's own web interface inside Home Assistant. A Home Assistant served over HTTPS cannot frame a plain-HTTP server, so the entry is left out and the log says so."
+          "show_in_sidebar": "Adds an entry that opens the server's own web interface inside Home Assistant. A Home Assistant served over HTTPS cannot frame a plain-HTTP server, so the entry is left out and the log says so.",
+          "reload_homekit_bridge": "A HomeKit Bridge only works out which entities to publish when it reloads, so a cue added or deleted in Stage Utility leaves the Apple Home app a switch short, or showing a deleted one as No Response. With this on, every bridge that could be publishing these cues is reloaded fifteen seconds after the cue list stops changing. Turn it off and reload the bridge by hand instead, under Settings, Devices & services, HomeKit Bridge, Reload."
         }
       }
     }
