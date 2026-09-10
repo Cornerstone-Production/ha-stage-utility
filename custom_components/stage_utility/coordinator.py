@@ -39,9 +39,9 @@ MAX_EVENT_BYTES = 1_000_000
 STREAM_TIMEOUT = ClientTimeout(total=None, sock_connect=10, sock_read=60)
 
 #: The fallback poll backs off this far, so an appliance switched off overnight
-#: is not asked for its cue states 2,880 times before morning. A minute rather
-#: than four: the stream reconnect rides the same tick, so this ceiling is also
-#: the longest a recovered server can go unnoticed.
+#: is not asked for its cue states 2,880 times before morning. A minute is the
+#: trade: a recovered server is polled within a minute of coming back, and a
+#: twelve-hour outage costs at most 720 fallback requests.
 MAX_FALLBACK_POLL_SECONDS = 60
 
 #: How long the server may be unreachable before it is worth more than the one
@@ -163,9 +163,6 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         self.stream_error: str | None = None
         self._stream_task: asyncio.Task[None] | None = None
         self._fallback_task: asyncio.Task[None] | None = None
-        #: Set by the fallback poll to wake the stream loop out of its backoff,
-        #: so the two run on one schedule while the server is away.
-        self._retry_stream = asyncio.Event()
         #: When the server first stopped answering, or None while it answers.
         self._unreachable_since: datetime | None = None
         #: Whether this outage has already had its one WARNING.
@@ -211,10 +208,6 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
         """Stay subscribed to the `cues` channel, forever, with backoff."""
         delay = STREAM_BACKOFF_MIN_SECONDS
         while True:
-            # Cleared before the attempt, not before the sleep: a nudge that
-            # arrives while this attempt is failing must survive into the sleep
-            # below, or it is lost and the backoff is waited out for nothing.
-            self._retry_stream.clear()
             try:
                 await self._stream_once()
                 # A clean end of stream is still a disconnect: the server
@@ -229,22 +222,8 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
                 self._set_connected(False, "Unexpected failure; see the log")
             else:
                 delay = STREAM_BACKOFF_MIN_SECONDS
-            await self._async_wait_to_retry(delay)
+            await asyncio.sleep(delay)
             delay = min(delay * 2, STREAM_BACKOFF_MAX_SECONDS)
-
-    async def _async_wait_to_retry(self, delay: float) -> None:
-        """Wait out the backoff, or wake early when the fallback poll nudges us.
-
-        The fallback poll is already asking the server a question every tick, so
-        it is the cheapest thing there is to hang the reconnect off: a server
-        that came back is noticed within one tick rather than at whatever the
-        stream's own backoff had grown to.
-        """
-        try:
-            async with asyncio.timeout(delay):
-                await self._retry_stream.wait()
-        except TimeoutError:
-            return
 
     async def _stream_once(self) -> None:
         """One connection: open it, subscribe, then read until it ends."""
@@ -459,10 +438,6 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             else:
                 delay = min(delay * 2, MAX_FALLBACK_POLL_SECONDS)
                 LOGGER.debug("Fallback poll failed; next in %s s", delay)
-            # Every tick, whether the poll answered or not: the poll and the
-            # reconnect are the same question asked two ways, and running them
-            # on one schedule is what keeps a recovery within one tick.
-            self._retry_stream.set()
             await asyncio.sleep(delay)
 
     async def async_poll_states_once(self) -> bool:

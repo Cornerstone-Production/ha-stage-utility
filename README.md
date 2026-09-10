@@ -100,9 +100,8 @@ to the cue list both arrive on that stream.
 
 When the stream drops — the appliance rebooted, the network blinked — it
 falls back to reading `/api/cues/states` every 30 seconds, backing that off to
-no more than a minute if the server stays away. The reconnect rides that same
-tick, so a server that came back is picked up within one poll rather than at
-whatever the stream's own backoff had grown to. The moment the stream is back,
+no more than a minute if the server stays away, and reconnects with a backoff
+from 1 s to 30 s. The moment the stream is back,
 the polling stops and the manifest is read again, because nothing is replayed
 for the time the socket was dead.
 

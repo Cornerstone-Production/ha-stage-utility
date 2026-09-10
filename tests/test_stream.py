@@ -440,17 +440,16 @@ async def test_the_outage_warning_says_how_long_it_has_actually_been(
     )
 
 
-async def test_the_fallback_tick_caps_its_backoff_and_nudges_the_stream(
+async def test_the_fallback_tick_caps_its_backoff(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The poll backs off no further than a minute, and wakes the stream each tick.
+    """The poll backs off no further than a minute.
 
-    Uncapped, eight failed ticks would have the poll an hour and a half apart —
-    and since the reconnect rides this tick, that is also how long a recovered
-    server would go unnoticed.
+    Uncapped, eight failed ticks would have the poll an hour and a half apart,
+    so a server that came back at 8am would be found at half past nine.
     """
     mock_server.get(f"{HOST}/api/cues/states", status=503)
     await init_integration(hass, config_entry)
@@ -461,11 +460,8 @@ async def test_the_fallback_tick_caps_its_backoff_and_nudges_the_stream(
     coordinator.stream_connected = False
 
     delays: list[float] = []
-    nudged: list[bool] = []
 
     async def fake_sleep(seconds, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
-        nudged.append(coordinator._retry_stream.is_set())  # noqa: SLF001
-        coordinator._retry_stream.clear()  # noqa: SLF001
         delays.append(seconds)
         if len(delays) >= 8:
             raise asyncio.CancelledError
@@ -476,25 +472,44 @@ async def test_the_fallback_tick_caps_its_backoff_and_nudges_the_stream(
     monkeypatch.undo()
 
     assert MAX_FALLBACK_POLL_SECONDS == 60
-    assert max(delays) == 60
-    # Every tick, not every other one and not only the ones that answered.
-    assert nudged == [True] * 8
+    # Uncapped this would read 60, 120, 240, ... — an hour and a half by the
+    # eighth tick.
+    assert delays == [60] * 8
 
 
-async def test_the_stream_backoff_gives_way_to_a_nudge(
+async def test_the_stream_backoff_doubles_up_to_thirty_seconds(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A reconnect parked on its backoff wakes when the fallback poll nudges it."""
+    """A stream that will not open is retried on a doubling backoff, capped at 30 s.
+
+    Half a minute is the longest a recovered server goes unnoticed by the
+    stream, and over a twelve-hour outage it costs at most 1,440 attempts.
+    """
     await init_integration(hass, config_entry)
     coordinator = config_entry.runtime_data
-    coordinator._retry_stream.clear()  # noqa: SLF001
+    coordinator._stream_task.cancel()  # noqa: SLF001
+    # Already recorded as down, so the loop's own `_set_connected(False)` is a
+    # no-op and no fallback task starts to share the patched sleep below.
+    coordinator.stream_connected = False
 
-    waiter = asyncio.create_task(coordinator._async_wait_to_retry(3600))  # noqa: SLF001
-    await asyncio.sleep(0)
-    assert not waiter.done()
+    async def _dead_stream() -> None:
+        raise CannotConnect("connection refused")
 
-    coordinator._retry_stream.set()  # noqa: SLF001
-    async with asyncio.timeout(1):
-        await waiter
+    monkeypatch.setattr(coordinator, "_stream_once", _dead_stream)
+
+    delays: list[float] = []
+
+    async def fake_sleep(seconds, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        delays.append(seconds)
+        if len(delays) >= 8:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._stream_loop()  # noqa: SLF001
+    monkeypatch.undo()
+
+    assert delays == [1, 2, 4, 8, 16, 30, 30, 30]
