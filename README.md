@@ -146,6 +146,31 @@ or an automation already decided — so this integration sends the confirmation
 straight back. Bear that in mind before exposing a destructive two-step cue to a
 dashboard.
 
+## Sidebar
+
+Stage Utility gets its own entry in the Home Assistant sidebar, named after the
+server and opening the server's own web interface in a frame — the whole
+application, not a summary of it. A second server added later gets a second
+entry under its own name.
+
+Turn it off per server under **Settings → Devices & services → Stage Utility →
+Configure**, with **Show in the sidebar**. Saving reloads the entry, so the
+entry appears or disappears at once.
+
+**A Home Assistant served over HTTPS cannot frame a plain-HTTP server.** The
+browser blocks the mixed content, so no entry is registered at all and the log
+says so once, with the address to open directly instead:
+
+```
+Not adding Stage Utility to the sidebar: Home Assistant is served over HTTPS
+and http://192.168.1.50:8788 is plain HTTP, which a browser will not frame.
+Open the server directly at http://192.168.1.50:8788 instead
+```
+
+Home Assistant counts as HTTPS if it terminates TLS itself, or if either its
+internal or its external URL is `https://`. Give Stage Utility an `https://`
+address of its own and the entry comes back.
+
 ## Troubleshooting
 
 **Diagnostics** — Settings → Devices & services → Stage Utility → the three-dot

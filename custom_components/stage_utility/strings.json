@@ -22,5 +22,19 @@
     "abort": {
       "already_configured": "This Stage Utility server is already set up."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Stage Utility",
+        "description": "How this server appears in Home Assistant.",
+        "data": {
+          "show_in_sidebar": "Show in the sidebar"
+        },
+        "data_description": {
+          "show_in_sidebar": "Adds an entry that opens the server's own web interface inside Home Assistant. A Home Assistant served over HTTPS cannot frame a plain-HTTP server, so the entry is left out and the log says so."
+        }
+      }
+    }
   }
 }
