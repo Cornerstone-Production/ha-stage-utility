@@ -38,12 +38,7 @@ async def async_get_config_entry_diagnostics(
         "switches": [asdict(row) for row in data.switches.values()] if data else [],
         "buttons": [asdict(row) for row in data.buttons.values()] if data else [],
         "states": (
-            {
-                row.id: {"state": row.state, "reason": row.reason}
-                for row in data.switches.values()
-            }
-            if data
-            else {}
+            {row.id: {"state": row.state, "reason": row.reason} for row in data.switches.values()} if data else {}
         ),
         "stream": {
             "connected": coordinator.stream_connected,

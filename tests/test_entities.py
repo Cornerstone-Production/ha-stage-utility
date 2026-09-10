@@ -7,13 +7,12 @@ import json
 from typing import Any
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
-
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from .conftest import HOST, MANIFEST, TOKEN, StreamMockResponse
 
@@ -22,9 +21,7 @@ UNBOUND_SWITCH = "switch.stage_utility_house_lights"
 BUTTON = "button.stage_utility_reset_ultrix"
 
 
-async def init_integration(
-    hass: HomeAssistant, config_entry: MockConfigEntry
-) -> None:
+async def init_integration(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
     """Set the entry up and let the stream task reach its read loop."""
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
@@ -32,11 +29,7 @@ async def init_integration(
 
 def cue_calls(mock: AiohttpClientMocker, cue: str) -> list[tuple[Any, ...]]:
     """Every POST made to one cue."""
-    return [
-        call
-        for call in mock.mock_calls
-        if call[0].lower() == "post" and call[1].path == f"/api/cues/{cue}"
-    ]
+    return [call for call in mock.mock_calls if call[0].lower() == "post" and call[1].path == f"/api/cues/{cue}"]
 
 
 async def test_entities_appear_with_the_server_device(
@@ -79,9 +72,7 @@ async def test_turn_on_posts_the_on_cue_with_the_token(
     )
     await init_integration(hass, config_entry)
 
-    await hass.services.async_call(
-        "switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True
-    )
+    await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
 
     calls = cue_calls(mock_server, "projectors_on")
     assert len(calls) == 1
@@ -100,9 +91,7 @@ async def test_turn_off_posts_the_off_cue(
     )
     await init_integration(hass, config_entry)
 
-    await hass.services.async_call(
-        "switch", "turn_off", {ATTR_ENTITY_ID: SWITCH}, blocking=True
-    )
+    await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
 
     assert len(cue_calls(mock_server, "projectors_off")) == 1
     assert hass.states.get(SWITCH).state == STATE_OFF
@@ -124,9 +113,7 @@ async def test_refusal_surfaces_the_servers_sentence(
     await init_integration(hass, config_entry)
 
     with pytest.raises(HomeAssistantError, match="The Gospel Way is live"):
-        await hass.services.async_call(
-            "switch", "turn_off", {ATTR_ENTITY_ID: SWITCH}, blocking=True
-        )
+        await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
 
     # Refused means nothing moved: the switch keeps the state the gear reports.
     assert hass.states.get(SWITCH).state == STATE_ON
@@ -151,16 +138,12 @@ async def test_confirmation_is_answered_immediately(
         )
 
         answer = answers.pop(0)
-        return AiohttpClientMockResponse(
-            method=method, url=url, status=answer["status"], json=answer["json"]
-        )
+        return AiohttpClientMockResponse(method=method, url=url, status=answer["status"], json=answer["json"])
 
     mock_server.post(f"{HOST}/api/cues/reset_ultrix", side_effect=_side_effect)
     await init_integration(hass, config_entry)
 
-    await hass.services.async_call(
-        "button", "press", {ATTR_ENTITY_ID: BUTTON}, blocking=True
-    )
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: BUTTON}, blocking=True)
 
     calls = cue_calls(mock_server, "reset_ultrix")
     assert len(calls) == 2
@@ -183,9 +166,7 @@ async def test_skipped_is_success(
     )
     await init_integration(hass, config_entry)
 
-    await hass.services.async_call(
-        "switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True
-    )
+    await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: SWITCH}, blocking=True)
 
     assert hass.states.get(SWITCH).state == STATE_ON
 
@@ -219,17 +200,13 @@ async def test_state_event_flips_the_switch(
 
     event_stream.send(
         "cues",
-        json.dumps(
-            {"type": "state", "id": "projectors", "state": "off", "reason": None}
-        ),
+        json.dumps({"type": "state", "id": "projectors", "state": "off", "reason": None}),
     )
     await hass.async_block_till_done()
 
     assert hass.states.get(SWITCH).state == STATE_OFF
     # Nothing was polled to learn that.
-    assert not any(
-        call[1].path == "/api/cues/states" for call in mock_server.mock_calls
-    )
+    assert not any(call[1].path == "/api/cues/states" for call in mock_server.mock_calls)
 
 
 async def test_manifest_event_adds_and_removes_entities(

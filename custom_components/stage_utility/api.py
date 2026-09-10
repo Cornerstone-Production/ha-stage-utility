@@ -111,9 +111,7 @@ class StageUtilityApi:
 
     async def _get_json(self, path: str) -> dict[str, Any]:
         try:
-            async with self.session.get(
-                self.url(path), timeout=REQUEST_TIMEOUT
-            ) as response:
+            async with self.session.get(self.url(path), timeout=REQUEST_TIMEOUT) as response:
                 if response.status != 200:
                     raise CannotConnect(f"{path} answered HTTP {response.status}")
                 body = await response.json(content_type=None)
@@ -147,9 +145,7 @@ class StageUtilityApi:
             return
         raise CannotConnect(f"Token probe answered an unexpected HTTP {status}")
 
-    async def _post_cue(
-        self, name: str, confirm: str | None
-    ) -> tuple[int, dict[str, Any]]:
+    async def _post_cue(self, name: str, confirm: str | None) -> tuple[int, dict[str, Any]]:
         path = f"/api/cues/{name}"
         params = {"confirm": confirm} if confirm else None
         try:
@@ -179,9 +175,7 @@ class StageUtilityApi:
             LOGGER.debug("Cue %s asked for confirmation; confirming", name)
             status, body = await self._post_cue(name, body["confirm"])
             if status == 202:
-                raise CannotConnect(
-                    f"Cue {name} asked to be confirmed twice; giving up"
-                )
+                raise CannotConnect(f"Cue {name} asked to be confirmed twice; giving up")
         return self._result(name, status, body)
 
     @staticmethod

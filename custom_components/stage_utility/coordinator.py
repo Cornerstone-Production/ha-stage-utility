@@ -9,13 +9,12 @@ the config entry, and polls `/api/cues/states` only while that stream is down.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field, replace
 import json
+from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import uuid4
 
 from aiohttp import ClientError, ClientTimeout
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -174,6 +173,10 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
     def async_start_stream(self) -> None:
         """Open the one subscription this integration holds."""
         if self._stream_task is None:
+            # The base class types config_entry as optional for coordinators that
+            # are not entry-scoped; this one always is — it is constructed from
+            # async_setup_entry and never outlives its entry.
+            assert self.config_entry is not None
             self._stream_task = self.config_entry.async_create_background_task(
                 self.hass, self._stream_loop(), f"{self.name} event stream"
             )
@@ -213,9 +216,7 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
     async def _stream_once(self) -> None:
         """One connection: open it, subscribe, then read until it ends."""
         url = self.api.url("/api/events")
-        async with self.api.session.get(
-            url, params={"cid": self.cid}, timeout=STREAM_TIMEOUT
-        ) as response:
+        async with self.api.session.get(url, params={"cid": self.cid}, timeout=STREAM_TIMEOUT) as response:
             if response.status != 200:
                 raise CannotConnect(f"/api/events answered HTTP {response.status}")
             # Report the channel filter only once the stream is actually open —
@@ -238,9 +239,7 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             timeout=ClientTimeout(total=10),
         ) as response:
             if response.status != 200:
-                raise CannotConnect(
-                    f"/api/events/subscribe answered HTTP {response.status}"
-                )
+                raise CannotConnect(f"/api/events/subscribe answered HTTP {response.status}")
 
     async def _read_events(self, response: Any) -> None:
         """Parse the SSE framing and hand each `cues` payload on.
@@ -324,14 +323,11 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
             return
         self.stream_connected = connected
         if connected:
-            LOGGER.info(
-                "Subscribed to the Stage Utility cue stream at %s", self.api.base_url
-            )
+            LOGGER.info("Subscribed to the Stage Utility cue stream at %s", self.api.base_url)
             self._stop_fallback()
         else:
             LOGGER.info(
-                "Stage Utility cue stream at %s is down (%s);"
-                " polling every %s s until it returns",
+                "Stage Utility cue stream at %s is down (%s); polling every %s s until it returns",
                 self.api.base_url,
                 error or "no reason given",
                 FALLBACK_POLL_SECONDS,
@@ -340,6 +336,7 @@ class StageUtilityCoordinator(DataUpdateCoordinator[StageUtilityData]):
 
     def _start_fallback(self) -> None:
         if self._fallback_task is None or self._fallback_task.done():
+            assert self.config_entry is not None  # see async_start_stream above
             self._fallback_task = self.config_entry.async_create_background_task(
                 self.hass, self._fallback_loop(), f"{self.name} fallback poll"
             )

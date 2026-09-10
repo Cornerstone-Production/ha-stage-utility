@@ -5,16 +5,15 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import Mock
 
-from aiohttp.streams import StreamReader
 import pytest
+from aiohttp.streams import StreamReader
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
     AiohttpClientMockResponse,
 )
 from yarl import URL
-
-from homeassistant.core import HomeAssistant
 
 from custom_components.stage_utility.const import CONF_HOST, CONF_TOKEN, DOMAIN
 
@@ -106,9 +105,7 @@ def event_stream(aioclient_mock: AiohttpClientMocker) -> StreamMockResponse:
 
 
 @pytest.fixture
-def mock_server(
-    aioclient_mock: AiohttpClientMocker, event_stream: StreamMockResponse
-) -> AiohttpClientMocker:
+def mock_server(aioclient_mock: AiohttpClientMocker, event_stream: StreamMockResponse) -> AiohttpClientMocker:
     """A Stage Utility answering the manifest, the subscribe and the probe."""
     aioclient_mock.get(f"{HOST}/api/cues/manifest", json=MANIFEST)
     aioclient_mock.post(f"{HOST}/api/events/subscribe", json={"ok": True})

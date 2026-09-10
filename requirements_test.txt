@@ -2,3 +2,8 @@
 # pytest-homeassistant-custom-component pulls in homeassistant itself; the pin
 # below is the harness for Home Assistant 2026.9.1.
 pytest-homeassistant-custom-component==0.13.364
+
+# Lint, format and type-check — pinned so a tool release doesn't fail CI on a
+# branch nobody touched.
+ruff==0.16.6
+mypy==2.3.1
