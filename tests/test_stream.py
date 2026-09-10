@@ -198,9 +198,16 @@ async def test_the_first_successful_poll_brings_the_entities_back(
     config_entry: MockConfigEntry,
     mock_server: AiohttpClientMocker,
 ) -> None:
-    """A poll that answers clears the outage without waiting for the stream."""
+    """A poll that answers clears the outage without waiting for the stream.
+
+    The recovery payload says exactly what the switch already holds, so nothing
+    republishes the data as a side effect of the state changing. What brings the
+    entity back has to be the poll noting the server reachable again — which is
+    the whole thing under test.
+    """
     await init_integration(hass, config_entry)
     coordinator = config_entry.runtime_data
+    assert hass.states.get(SWITCH).state == STATE_ON
 
     mock_server.get(f"{HOST}/api/cues/states", status=503)
     coordinator._set_connected(False, "socket closed")  # noqa: SLF001
@@ -211,13 +218,13 @@ async def test_the_first_successful_poll_brings_the_entities_back(
     mock_server.clear_requests()
     mock_server.get(
         f"{HOST}/api/cues/states",
-        json={"ok": True, "states": {"projectors": {"state": "off"}}},
+        json={"ok": True, "states": {"projectors": {"state": "on"}}},
     )
     assert await coordinator.async_poll_states_once() is True
     await hass.async_block_till_done()
 
     assert coordinator.last_update_success is True
-    assert hass.states.get(SWITCH).state == STATE_OFF
+    assert hass.states.get(SWITCH).state == STATE_ON
 
 
 async def test_a_reconnect_brings_the_entities_back(
