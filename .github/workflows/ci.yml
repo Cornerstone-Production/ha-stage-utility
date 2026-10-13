@@ -66,6 +66,9 @@ jobs:
 
       - name: Test
         run: pytest -q
+        env:
+          # Private terms for tests/test_repo_hygiene.py. Absent on forks; the test then checks generic rules only.
+          PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
 
   hassfest:
     name: hassfest
