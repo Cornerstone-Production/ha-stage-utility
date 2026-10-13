@@ -85,8 +85,8 @@ class StageUtilityEntity(CoordinatorEntity[StageUtilityCoordinator]):
         device name followed by the entity name, and there is no integration-side
         way out of it: `has_entity_name = False` only tells the registry to strip
         a device-name prefix off `original_name` before composing, so a cue named
-        "VCR Light" on a server named "Cornerstone Worship" reads "Cornerstone
-        Worship VCR Light" either way. That is the name HomeKit publishes and the
+        "VCR Light" on a server named "Main Campus" reads "Main Campus
+        VCR Light" either way. That is the name HomeKit publishes and the
         name Siri has to hear.
 
         The one name that escapes the composition is the registry's own `name` —

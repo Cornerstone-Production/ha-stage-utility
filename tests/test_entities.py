@@ -45,7 +45,7 @@ async def test_entities_appear_with_the_server_device(
     # The cue's words alone. With has_entity_name the server's name led every
     # switch ("Stage Utility Projectors"), which is what Siri would have heard.
     assert bound.attributes["friendly_name"] == "Projectors"
-    assert bound.attributes["state_source"] == "MA_HL_Projector:powerState"
+    assert bound.attributes["state_source"] == "Main_Projector:powerState"
     assert bound.attributes["cue_on"] == "projectors_on"
     assert bound.attributes["cue_off"] == "projectors_off"
     # A bound pair reports; it does not assume.
@@ -297,7 +297,7 @@ async def test_manifest_event_adds_and_removes_entities(
         {
             "id": "stage_wash",
             "name": "Stage Wash",
-            "room": "Main Auditorium",
+            "room": "Main Room",
             "on": "stage_wash_on",
             "off": "stage_wash_off",
             "toggle": False,
