@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from pathlib import Path
 
 #: The one address this repo may use in an example or a fixture. RFC 5737 keeps
@@ -59,6 +60,14 @@ PLACEHOLDER_HOMES = {"you", "user", "username", "example"}
 
 HOME_PATH = re.compile(r"/(?:Users|home)/([A-Za-z0-9._-]+)")
 
+#: Whitespace and comment markers, collapsed before a term is matched, so a term
+#: hard-wrapped across a docstring or comment line is still one phrase.
+WRAP = re.compile(r"[\s*#>/]+")
+
+
+def _flatten(text: str) -> str:
+    return WRAP.sub(" ", unicodedata.normalize("NFC", text)).lower()
+
 
 def _private_terms() -> list[str]:
     """Terms from PRIVATE_TERMS (a CI secret) and a local, gitignored .private-terms.
@@ -69,7 +78,7 @@ def _private_terms() -> list[str]:
     local = Path(__file__).resolve().parent.parent / ".private-terms"
     if local.is_file():
         raw += "\n" + local.read_text(encoding="utf-8")
-    return [line.strip().lower() for line in raw.splitlines() if line.strip()]
+    return [_flatten(line).strip() for line in raw.splitlines() if line.strip()]
 
 
 def find_offences(text: str, terms: list[str]) -> list[str]:
@@ -83,9 +92,9 @@ def find_offences(text: str, terms: list[str]) -> list[str]:
     for match in HOME_PATH.finditer(text):
         if match.group(1) not in PLACEHOLDER_HOMES:
             found.append(f"home path {match.group(0)}")
-    lowered = text.lower()
+    flat = _flatten(text)
     for index, term in enumerate(terms, start=1):
-        if term in lowered:
+        if term in flat:
             found.append(f"private term #{index}")
     return found
 
@@ -97,6 +106,7 @@ def test_the_detectors_fire() -> None:
     home = "/Us" + "ers/realname"
     allowed = "ok" + "@" + "example.com"
     planted = "\n".join([address, email, allowed, home + "/x", "/Users/you/x", "Some Ministry Name"])
+    assert find_offences("the Some\n    # Ministry  Name", ["some ministry name"]) == ["private term #1"]
     assert find_offences(planted, ["some ministry name"]) == [
         "address " + address,
         "email " + email,
