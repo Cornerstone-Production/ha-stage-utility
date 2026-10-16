@@ -6,3 +6,6 @@ __pycache__/
 htmlcov/
 .DS_Store
 .ruff_cache/
+
+# Private terms the hygiene test checks locally; CI reads the PRIVATE_TERMS secret.
+.private-terms

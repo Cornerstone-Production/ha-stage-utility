@@ -22,7 +22,7 @@ from custom_components.stage_utility.const import (
 
 from .conftest import HOST, TOKEN, StreamMockResponse
 
-SECOND_HOST = "http://stage-utility-chapel:8788"
+SECOND_HOST = "http://stage-utility-overflow:8788"
 
 
 def panel_paths(hass: HomeAssistant) -> list[str]:
@@ -106,14 +106,14 @@ async def test_two_servers_get_two_panels(
     aioclient_mock._mocks.insert(0, second_stream)  # noqa: SLF001
     aioclient_mock.get(
         f"{SECOND_HOST}/api/cues/manifest",
-        json={"version": 1, "server": {"name": "Chapel", "lanUrl": SECOND_HOST}, "switches": [], "buttons": []},
+        json={"version": 1, "server": {"name": "Overflow", "lanUrl": SECOND_HOST}, "switches": [], "buttons": []},
     )
     aioclient_mock.post(f"{SECOND_HOST}/api/events/subscribe", json={"ok": True})
     second = MockConfigEntry(
         domain=DOMAIN,
-        title="Chapel",
+        title="Overflow",
         data={CONF_HOST: SECOND_HOST, CONF_TOKEN: TOKEN},
-        unique_id="stage-utility-chapel",
+        unique_id="stage-utility-overflow",
     )
     second.add_to_hass(hass)
     await hass.config_entries.async_setup(second.entry_id)
@@ -124,7 +124,7 @@ async def test_two_servers_get_two_panels(
     panels = hass.data[DATA_PANELS]
     assert panels[PANEL_URL_PATH].config == {"url": HOST}
     assert panels[suffixed_path].config == {"url": SECOND_HOST}
-    assert panels[suffixed_path].sidebar_title == "Chapel"
+    assert panels[suffixed_path].sidebar_title == "Overflow"
 
     # Unloading one leaves the other where it was.
     assert await hass.config_entries.async_unload(config_entry.entry_id)

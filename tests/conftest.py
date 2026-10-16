@@ -27,13 +27,13 @@ MANIFEST: dict[str, Any] = {
         {
             "id": "projectors",
             "name": "Projectors",
-            "room": "Main Auditorium",
+            "room": "Main Room",
             "on": "projectors_on",
             "off": "projectors_off",
             "toggle": False,
             "state": "on",
             "reason": None,
-            "stateSource": "MA_HL_Projector:powerState",
+            "stateSource": "Main_Projector:powerState",
             "available": True,
         },
         {

@@ -110,6 +110,14 @@ pytest -q
 
 CI (`ci.yml`) runs the same four, plus hassfest and HACS validation.
 
+This repo is public, so `tests/test_repo_hygiene.py` fails on anything that
+points at real people or gear: a private address other than `192.168.1.50`, an
+email outside `example.com`/`.org`/`.net` and `users.noreply.github.com`, or a
+`/Users/<name>` or `/home/<name>` path other than `you`, `user`, `username` or
+`example`. It also fails on any term listed in the `PRIVATE_TERMS` repository
+secret, or in a gitignored `.private-terms` file at the repo root, one term per
+line; a finding names the term's line number, never the term.
+
 Two more questions, answered in the PR body:
 
 - **Do the docs still describe this correctly?** A new config-flow field, a

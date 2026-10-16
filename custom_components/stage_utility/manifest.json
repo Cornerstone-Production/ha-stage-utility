@@ -2,7 +2,7 @@
   "domain": "stage_utility",
   "name": "Stage Utility",
   "after_dependencies": ["frontend"],
-  "codeowners": ["@hstreuber"],
+  "codeowners": ["@hstreub"],
   "config_flow": true,
   "documentation": "https://github.com/Cornerstone-Production/ha-stage-utility",
   "integration_type": "hub",
