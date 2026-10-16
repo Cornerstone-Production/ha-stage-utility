@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Stage Utility",
-        "description": "Point Home Assistant at your Stage Utility server and give it a cue token. Mint one in Stage Utility under Settings, Automation, Calling cues.",
+        "description": "Point Home Assistant at your Stage Utility server and give it a cue token. Mint one in Stage Utility on the Automation page, under Calling cues.",
         "data": {
           "host": "Host",
           "token": "Cue token"

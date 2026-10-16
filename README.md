@@ -10,7 +10,7 @@ the server has something to say.
 - Home Assistant 2025.2 or newer.
 - A Stage Utility server reachable on the network, version 1.15 or newer (the
   cue manifest and the `cues` event channel).
-- A **cue token**, minted in Stage Utility under **Settings → Cues**. The secret
+- A **cue token**, minted in Stage Utility on the **Automation** page, under **Calling cues**. The secret
   is shown once, when it is minted, and never again.
 
 ## Install
@@ -32,7 +32,7 @@ directory and restart.
 | Field | What to type |
 |---|---|
 | Host | `192.168.1.50`, `192.168.1.50:8788` or `http://stage-utility:8788`. A bare address gets plain HTTP on port 8788, which is where every Stage Utility install starts. |
-| Cue token | The `su_…` secret from Settings → Cues. |
+| Cue token | The `su_…` secret from Automation → Calling cues. |
 
 The flow reads the cue manifest to prove it found a Stage Utility, then posts to
 a cue name that cannot exist to prove the token is accepted — a `404` means the
