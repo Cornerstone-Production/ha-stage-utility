@@ -3,10 +3,10 @@
     "step": {
       "user": {
         "title": "Stage Utility",
-        "description": "Point Home Assistant at your Stage Utility server and give it a cue token. Mint one in Stage Utility on the Automation page, under Calling cues.",
+        "description": "Point Home Assistant at your Stage Utility server and give it a command token. Mint one in Stage Utility on the Automation page's Access tab.",
         "data": {
           "host": "Host",
-          "token": "Cue token"
+          "token": "Command token"
         },
         "data_description": {
           "host": "An address on your network: 192.168.1.50, 192.168.1.50:8788, or http://stage-utility:8788. Plain HTTP on port 8788 is assumed when you leave those off.",
