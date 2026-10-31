@@ -199,7 +199,7 @@ a reload of this integration's own entry all leave the accessory list as it was.
 `homekit` YAML is never touched.
 
 Turn it off per server under **Settings → Devices & services → Stage Utility →
-Configure**, with **Reload the HomeKit Bridge when cues change**. With it off,
+Configure**, with **Reload the HomeKit Bridge when commands change**. With it off,
 reload the bridge yourself after changing cues: **Settings → Devices & services →
 HomeKit Bridge →** the three-dot menu **→ Reload**.
 

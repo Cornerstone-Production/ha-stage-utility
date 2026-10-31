@@ -31,7 +31,7 @@
         "description": "How this server appears in Home Assistant.",
         "data": {
           "show_in_sidebar": "Show in the sidebar",
-          "reload_homekit_bridge": "Reload the HomeKit Bridge when cues change"
+          "reload_homekit_bridge": "Reload the HomeKit Bridge when commands change"
         },
         "data_description": {
           "show_in_sidebar": "Adds an entry that opens the server's own web interface inside Home Assistant. A Home Assistant served over HTTPS cannot frame a plain-HTTP server, so the entry is left out and the log says so.",
