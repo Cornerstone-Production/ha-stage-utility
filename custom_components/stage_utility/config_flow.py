@@ -1,4 +1,4 @@
-"""Ask for the server and a cue token, then prove both work."""
+"""Ask for the server and a command token, then prove both work."""
 
 from __future__ import annotations
 
